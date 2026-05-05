@@ -115,8 +115,13 @@ public final class RealmsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new MobListener(store), this);
         getServer().getPluginManager().registerEvents(homeManager, this);
-        getServer().getPluginManager().registerEvents(
-                new BorderTitleListener(config, store, nameCache, displayPrefs, palette), this);
+        BorderTitleListener borderTitle =
+                new BorderTitleListener(config, store, nameCache, displayPrefs, palette);
+        getServer().getPluginManager().registerEvents(borderTitle, this);
+        // Wire the 1Hz fallback so the territory task also re-checks each
+        // online player's chunk owner — catches any crossing the event
+        // listeners miss (vehicle, spectator flight, plugin-suppressed events).
+        territoryTask.setBorderTitle(borderTitle);
         getServer().getPluginManager().registerEvents(
                 new DisplayQuitListener(territoryTask, showClaimManager), this);
         this.luckPermsHook = LuckPermsHook.attempt(this, config.luckPermsPrefixWeight());

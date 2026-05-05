@@ -99,6 +99,17 @@ public final class BorderTitleListener implements Listener {
         lastOwner.remove(event.getPlayer().getUniqueId());
     }
 
+    /**
+     * Public so {@link TerritoryDisplayTask} can call it as a 1Hz fallback —
+     * any chunk-crossing path the event listeners miss (vehicle movement,
+     * spectator flight, plugin-suppressed events, weird teleport edge cases)
+     * will still fire the title within a tick of the next poll.
+     */
+    public void checkPlayer(Player p) {
+        if (p == null || !p.isOnline()) return;
+        check(p, ClaimKey.of(p.getLocation()));
+    }
+
     private void check(Player p, ClaimKey here) {
         Long newOwner = store.claimOwner(here);
         Long oldOwner = lastOwner.get(p.getUniqueId());

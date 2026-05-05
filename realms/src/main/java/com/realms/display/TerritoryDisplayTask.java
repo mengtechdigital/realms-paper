@@ -28,6 +28,8 @@ public final class TerritoryDisplayTask extends BukkitRunnable {
     private final RealmsStore store;
     private final DisplayPrefsManager prefs;
     private final Palette palette;
+    /** 1Hz fallback so border titles fire even if the event listeners miss a transition. */
+    private BorderTitleListener borderTitle;
 
     /** Live boss bar handles per-player so we can update text + remove cleanly. */
     private final Map<UUID, BossBar> liveBars = new ConcurrentHashMap<>();
@@ -40,9 +42,20 @@ public final class TerritoryDisplayTask extends BukkitRunnable {
         this.palette = palette;
     }
 
+    /** Wired post-construction to break the BorderTitleListener ↔ TerritoryDisplayTask cycle. */
+    public void setBorderTitle(BorderTitleListener listener) {
+        this.borderTitle = listener;
+    }
+
     @Override
     public void run() {
         for (Player p : Bukkit.getOnlinePlayers()) {
+            // Border-title fallback first — checkPlayer is idempotent, so
+            // missing nothing if the event listener already handled the
+            // crossing; firing the title only if the chunk owner changed
+            // since last tick otherwise.
+            if (borderTitle != null) borderTitle.checkPlayer(p);
+
             DisplayPrefs pref = prefs.of(p);
             switch (pref.barMode()) {
                 case ACTION -> renderActionBar(p);
