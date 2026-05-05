@@ -20,6 +20,8 @@ errors:
   not-wilderness: "&cThis chunk is already claimed by &e{realm}&c."
   chunk-not-yours: "&cThis chunk doesn't belong to your realm."
   chunk-already-yours: "&cThis chunk is already yours."
+  # not-adjacent: kept for backwards-compat with older messages.yml files
+  # but no longer emitted — adjacency is no longer enforced.
   not-adjacent: "&cThe claim must touch your existing land."
   insufficient-power: "&cNot enough realm power. Have &e{power}&c, need &e{n}&c."
   diameter-not-odd: "&cClaim diameter must be an odd number (1, 3, 5, 7…)."

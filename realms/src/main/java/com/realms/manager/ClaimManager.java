@@ -12,7 +12,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Land claim engine. /realm claim N centers an N×N square on the player's
@@ -22,10 +21,12 @@ import java.util.Set;
  * Validation pipeline:
  *   1. Player must be a managing member (mayor / assistant).
  *   2. N must be odd and ≤ max-claim-diameter (config).
- *   3. Every chunk in the area must be wilderness.
- *   4. Total cost must fit in (capacity - currentCost).
- *   5. If realm has any claims, at least one chunk must touch existing land.
- *   6. If N ≥ confirm-from-diameter, a confirm token must be armed.
+ *   3. Each chunk is bucketed: wilderness → claim, this realm → skip,
+ *      another realm → atomic abort.
+ *   4. Total NEW-chunk cost must fit in (capacity - currentCost).
+ *   5. If N ≥ confirm-from-diameter, a confirm token must be armed.
+ *
+ * No adjacency requirement — disconnected outposts are allowed.
  */
 public final class ClaimManager {
 
@@ -99,13 +100,9 @@ public final class ClaimManager {
             ));
         }
 
-        // Adjacency: any chunk in toClaim must 4-neighbour an existing
-        // realm claim. Self-owned chunks inside the area count toward
-        // 'existing' automatically — touchesAny will see them.
-        Set<ClaimKey> existing = new java.util.HashSet<>(store.claimsOf(realm.id()));
-        if (!existing.isEmpty() && !touchesAny(toClaim, existing)) {
-            return Result.fail("errors.not-adjacent");
-        }
+        // No adjacency requirement — players can claim disconnected
+        // outposts anywhere in the world. Factions-style free-form
+        // claiming, deliberately looser than Towny's contiguous-only rule.
 
         // Confirmation gate for big batches. Token is keyed by (diameter,
         // world, chunkX, chunkZ) so walking to a different chunk and
@@ -189,14 +186,4 @@ public final class ClaimManager {
         return Result.ok("info.unclaim-success", ph);
     }
 
-    /** True iff any chunk in `area` is 4-neighbor adjacent to any chunk in `existing`. */
-    private static boolean touchesAny(List<ClaimKey> area, Set<ClaimKey> existing) {
-        for (ClaimKey k : area) {
-            if (existing.contains(k.offset(1, 0))) return true;
-            if (existing.contains(k.offset(-1, 0))) return true;
-            if (existing.contains(k.offset(0, 1))) return true;
-            if (existing.contains(k.offset(0, -1))) return true;
-        }
-        return false;
-    }
 }
