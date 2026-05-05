@@ -47,6 +47,11 @@ public final class PowerLedgerListener implements Listener {
         ClaimKey key = ClaimKey.of(b.getLocation());
         Long realmId = store.claimOwner(key);
         if (realmId == null) return;     // wilderness — no ledger
+        // Admin zones don't track power; players can't normally build there
+        // anyway, but ops with bypass might. Skip the ledger so we don't
+        // accumulate phantom power on a synthetic realm.
+        Realm realm = store.getRealm(realmId);
+        if (realm != null && realm.isAdminZone()) return;
         store.deltaPower(key, type, +1);
         recompute(realmId);
     }
@@ -59,6 +64,8 @@ public final class PowerLedgerListener implements Listener {
         ClaimKey key = ClaimKey.of(b.getLocation());
         Long realmId = store.claimOwner(key);
         if (realmId == null) return;
+        Realm realm = store.getRealm(realmId);
+        if (realm != null && realm.isAdminZone()) return;
         store.deltaPower(key, type, -1);
         recompute(realmId);
     }

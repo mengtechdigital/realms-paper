@@ -83,6 +83,7 @@ public final class DiplomacyManager {
         Realm target = store.getRealmByName(targetName);
         if (target == null) return Result.fail("errors.realm-not-found", Map.of("realm", targetName));
         if (target.id() == me.realmId()) return Result.fail("errors.cannot-target-self");
+        if (target.isAdminZone()) return Result.fail("errors.cannot-target-admin-zone");
 
         long my = me.realmId();
         // Already allied?
@@ -114,6 +115,7 @@ public final class DiplomacyManager {
         Realm target = store.getRealmByName(targetName);
         if (target == null) return Result.fail("errors.realm-not-found", Map.of("realm", targetName));
         if (target.id() == me.realmId()) return Result.fail("errors.cannot-target-self");
+        if (target.isAdminZone()) return Result.fail("errors.cannot-target-admin-zone");
 
         long my = me.realmId();
         long now = Instant.now().toEpochMilli();

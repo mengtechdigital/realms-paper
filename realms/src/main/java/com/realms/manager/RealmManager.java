@@ -83,7 +83,7 @@ public final class RealmManager {
 
         long now = Instant.now().toEpochMilli();
         Realm realm = store.createRealm(name, founder.getUniqueId(),
-                config.peacefulDefault(), now);
+                config.peacefulDefault(), com.realms.data.ZoneType.NORMAL, now);
         store.upsertResident(new Resident(founder.getUniqueId(), realm.id(), Role.MAYOR, now));
         // Seed default flags (peaceful is its own column, not in flags table).
         store.setFlag(realm.id(), "hostile-spawn", config.flagDefault("hostile-spawn", true));

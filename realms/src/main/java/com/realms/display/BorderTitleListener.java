@@ -94,16 +94,23 @@ public final class BorderTitleListener implements Listener {
         String subRaw = "";
         if (config.borderTitleSubtitle()) {
             if (realm != null) {
-                subRaw = realm.peaceful()
-                        ? config.message("info.display-subtitle-peaceful", "[Peaceful]")
-                        : palette.isWeakened(realm)
-                            ? config.message("info.display-subtitle-weakened", "[Weakened]")
-                            : Text.render(config.message("info.display-subtitle-mayor",
-                                    "Mayor: {player} · {chunks} chunks"),
-                                    Map.of(
-                                            "player", names.getOr(realm.founder(), "?"),
-                                            "chunks", String.valueOf(store.claimCount(realm.id()))
-                                    ));
+                if (realm.isAdminZone()) {
+                    // Admin zones don't have a mayor / chunk economy in any
+                    // meaningful sense — show the zone type and chunk count.
+                    subRaw = "[" + realm.zoneType().name().toLowerCase(java.util.Locale.ROOT)
+                            + "] " + store.claimCount(realm.id()) + " chunks";
+                } else if (realm.peaceful()) {
+                    subRaw = config.message("info.display-subtitle-peaceful", "[Peaceful]");
+                } else if (palette.isWeakened(realm)) {
+                    subRaw = config.message("info.display-subtitle-weakened", "[Weakened]");
+                } else {
+                    subRaw = Text.render(config.message("info.display-subtitle-mayor",
+                            "Mayor: {player} · {chunks} chunks"),
+                            Map.of(
+                                    "player", names.getOr(realm.founder(), "?"),
+                                    "chunks", String.valueOf(store.claimCount(realm.id()))
+                            ));
+                }
             }
         }
         Component main = Component.text(Text.stripColor("Entering ")).color(NamedTextColor.GRAY)

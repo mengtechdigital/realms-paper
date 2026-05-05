@@ -39,12 +39,16 @@ public final class ClaimAccess {
         this.diplomacy = diplomacy;
     }
 
-    /** Modify-the-world authority — members only. */
+    /** Modify-the-world authority — members only; admin zones lock everyone out. */
     public boolean canBuild(Player player, Location at) {
         if (player == null || at == null || at.getWorld() == null) return true;
         if (bypass.is(player.getUniqueId())) return true;
         Long ownerId = store.claimOwner(ClaimKey.of(at));
         if (ownerId == null) return true;
+        Realm realm = store.getRealm(ownerId);
+        // Admin zones (safezone / warzone) — no player can build, only ops
+        // with bypass on (already short-circuited above).
+        if (realm != null && realm.isAdminZone()) return false;
         return isMemberOf(player.getUniqueId(), ownerId);
     }
 
@@ -54,6 +58,8 @@ public final class ClaimAccess {
         if (bypass.is(player.getUniqueId())) return true;
         Long ownerId = store.claimOwner(ClaimKey.of(at));
         if (ownerId == null) return true;
+        Realm realm = store.getRealm(ownerId);
+        if (realm != null && realm.isAdminZone()) return false;
         if (isMemberOf(player.getUniqueId(), ownerId)) return true;
         Resident me = store.getResident(player.getUniqueId());
         if (me == null) return false;
@@ -72,6 +78,18 @@ public final class ClaimAccess {
     public boolean canPvp(Player attacker, Player victim) {
         if (attacker == null || victim == null) return true;
         if (attacker.equals(victim)) return true;
+
+        // Chunk owner takes precedence for admin zones — safezone always
+        // blocks PvP, warzone always allows it, regardless of attacker /
+        // victim realm membership.
+        Long chunkOwnerId = store.claimOwner(ClaimKey.of(victim.getLocation()));
+        if (chunkOwnerId != null) {
+            Realm chunkRealm = store.getRealm(chunkOwnerId);
+            if (chunkRealm != null && chunkRealm.isAdminZone()) {
+                if (chunkRealm.zoneType().forcesPvpOff()) return false;
+                if (chunkRealm.zoneType().forcesPvpOn())  return true;
+            }
+        }
 
         Resident attackerRes = store.getResident(attacker.getUniqueId());
         Resident victimRes   = store.getResident(victim.getUniqueId());

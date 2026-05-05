@@ -25,7 +25,8 @@ public interface RealmsStore {
     // -- Realms --------------------------------------------------------------
 
     /** Insert a new realm and return its persistent record (with assigned id). */
-    Realm createRealm(String name, UUID founder, boolean peaceful, long foundedMillis);
+    Realm createRealm(String name, UUID founder, boolean peaceful,
+                      ZoneType zoneType, long foundedMillis);
 
     void updateRealm(Realm realm);
 

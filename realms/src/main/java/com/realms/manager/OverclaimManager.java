@@ -88,6 +88,9 @@ public final class OverclaimManager {
         }
         Realm victim = store.getRealm(ownerId);
         if (victim == null) return Result.fail("errors.chunk-not-overclaimable");
+        // Admin zones (safezone / warzone) are never overclaimable — they
+        // exist outside the player power economy entirely.
+        if (victim.isAdminZone()) return Result.fail("errors.target-admin-zone");
         if (victim.peaceful()) return Result.fail("errors.target-peaceful");
         if (!diplomacy.areEnemies(myRealm.id(), victim.id())) {
             return Result.fail("errors.not-enemy");

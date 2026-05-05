@@ -17,7 +17,7 @@ import org.bukkit.entity.Player;
  */
 public final class Palette {
 
-    public enum Relation { OWN, ALLY, ENEMY, NEUTRAL, PEACEFUL, WILDERNESS }
+    public enum Relation { OWN, ALLY, ENEMY, NEUTRAL, PEACEFUL, SAFEZONE, WARZONE, WILDERNESS }
 
     private final RealmsConfig config;
     private final RealmsStore store;
@@ -36,6 +36,9 @@ public final class Palette {
         if (ownerRealmId == null) return Relation.WILDERNESS;
         Realm realm = store.getRealm(ownerRealmId);
         if (realm == null) return Relation.WILDERNESS;
+        // Admin zones are their own categories and override player relations.
+        if (realm.zoneType() == com.realms.data.ZoneType.SAFEZONE) return Relation.SAFEZONE;
+        if (realm.zoneType() == com.realms.data.ZoneType.WARZONE)  return Relation.WARZONE;
         if (realm.peaceful()) return Relation.PEACEFUL;
         Resident me = store.getResident(viewer.getUniqueId());
         if (me == null) return Relation.NEUTRAL;
@@ -57,6 +60,8 @@ public final class Palette {
             case ENEMY      -> config.colorEnemy();
             case NEUTRAL    -> config.colorNeutral();
             case PEACEFUL   -> config.colorPeaceful();
+            case SAFEZONE   -> config.colorSafezone();
+            case WARZONE    -> config.colorWarzone();
             case WILDERNESS -> config.colorWilderness();
         };
     }
@@ -69,6 +74,8 @@ public final class Palette {
             case ENEMY      -> Color.fromRGB(0xef4444);  // red-500
             case NEUTRAL    -> Color.fromRGB(0xfacc15);  // yellow-400
             case PEACEFUL   -> Color.fromRGB(0xf59e0b);  // amber-500
+            case SAFEZONE   -> Color.fromRGB(0x22c55e);  // emerald-500
+            case WARZONE    -> Color.fromRGB(0xf97316);  // orange-500
             case WILDERNESS -> Color.fromRGB(0x9ca3af);  // gray-400
         };
     }

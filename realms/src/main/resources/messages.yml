@@ -38,6 +38,11 @@ errors:
   no-home: "&cYour realm has no home set. Mayor can set it via &e/realm sethome&c."
   home-cooldown: "&cYou must wait &e{n}s&c before teleporting home again."
   showclaim-disabled: "&cShow-claims is disabled on this server."
+  invalid-zone-type: "&cUnknown zone type &e{type}&c. Use &esafezone&c or &ewarzone&c."
+  not-admin-zone: "&e{realm}&c is not an admin zone."
+  target-admin-zone: "&cAdmin zones cannot be overclaimed."
+  cannot-target-admin-zone: "&cThat operation is not allowed on admin zones."
+  confirm-required-zone-delete: "&cThis will permanently wipe admin zone &e{realm}&c (&6{chunks}&c chunks). Run &6/realm admin zone delete {realm} confirm&c to proceed."
   raid-disabled: "&cRaiding is disabled on this server."
   not-enemy: "&cYou can only overclaim enemies."
   target-peaceful: "&cThat realm is under peaceful protection."
@@ -87,6 +92,10 @@ info:
   sethome-success: "&aRealm home set to your current location."
   home-warming: "&eTeleporting in &6{n}s&e — don't move and don't take damage."
   home-teleporting: "&aTeleporting home..."
+  zone-created: "&aAdmin zone &6{realm}&a created (&e{type}&a)."
+  zone-claim-success: "&aClaimed chunk ({x}, {z}) for admin zone &6{realm}&a."
+  zone-unclaim-success: "&aUnclaimed chunk ({x}, {z}) from admin zone &6{realm}&a."
+  zone-deleted: "&aAdmin zone &6{realm}&a deleted."
 
 broadcasts:
   realm-founded: "&6A new realm &6{realm}&7 has been founded by &e{player}&7."

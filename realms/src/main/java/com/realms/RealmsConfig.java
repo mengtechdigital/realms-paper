@@ -175,6 +175,8 @@ public final class RealmsConfig {
     public String colorEnemy() { return config.getString("colors.enemy", "&c"); }
     public String colorNeutral() { return config.getString("colors.neutral", "&e"); }
     public String colorPeaceful() { return config.getString("colors.peaceful", "&6"); }
+    public String colorSafezone() { return config.getString("colors.safezone", "&2"); }  // dark green
+    public String colorWarzone()  { return config.getString("colors.warzone",  "&4"); }  // dark red
 
     // Home ------------------------------------------------------------------
 

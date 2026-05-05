@@ -100,7 +100,11 @@ public final class ExplosionListener implements Listener {
             Realm realm = store.getRealm(ownerId);
             if (realm == null) continue;         // orphaned claim row, ignore
 
-            boolean cancel = realm.peaceful() || policy == ExplosionPolicy.CANCEL;
+            // Admin zones force cancel for ALL explosion sources — keeps
+            // safezones safe and warzones from being terraformed by raiders.
+            boolean cancel = realm.peaceful()
+                    || realm.zoneType().cancelsExplosions()
+                    || policy == ExplosionPolicy.CANCEL;
             if (cancel) {
                 blocks.remove();
                 continue;

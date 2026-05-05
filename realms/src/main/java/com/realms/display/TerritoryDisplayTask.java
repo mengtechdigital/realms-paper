@@ -70,8 +70,10 @@ public final class TerritoryDisplayTask extends BukkitRunnable {
         String text = composeLine(p, ownerId, rel);
         // Fill = claim_cost / capacity. A near-empty bar means the realm is
         // close to weakened (good raid signal). Wilderness gets full bar.
+        // Admin zones don't have a meaningful capacity (cachedPower=0), so
+        // they always show full instead of underflowing to empty.
         float fill = 1.0f;
-        if (realm != null && config.bossBarShowFill()) {
+        if (realm != null && config.bossBarShowFill() && !realm.isAdminZone()) {
             long capacity = Math.max(1L, realm.cachedPower());
             long cost = (long) store.claimCount(realm.id()) * Math.max(1L, config.costPerChunk());
             fill = (float) Math.max(0.0, Math.min(1.0, 1.0 - (double) cost / capacity));
@@ -108,8 +110,12 @@ public final class TerritoryDisplayTask extends BukkitRunnable {
         Realm realm = store.getRealm(ownerId);
         if (realm == null) return palette.code(Palette.Relation.WILDERNESS) + "?";
         StringBuilder tag = new StringBuilder();
-        if (realm.peaceful() && config.actionBarPeacefulTag()) tag.append(" [Peaceful]");
-        if (config.actionBarWeakenedTag() && palette.isWeakened(realm)) tag.append(" [Weakened]");
+        if (realm.isAdminZone()) {
+            tag.append(" [").append(realm.zoneType().name().toLowerCase(java.util.Locale.ROOT)).append("]");
+        } else {
+            if (realm.peaceful() && config.actionBarPeacefulTag()) tag.append(" [Peaceful]");
+            if (config.actionBarWeakenedTag() && palette.isWeakened(realm)) tag.append(" [Weakened]");
+        }
         String relLabel = switch (rel) {
             case ALLY    -> " (Ally)";
             case ENEMY   -> " (Enemy)";
@@ -129,6 +135,8 @@ public final class TerritoryDisplayTask extends BukkitRunnable {
             case ENEMY      -> BossBar.Color.RED;
             case NEUTRAL    -> BossBar.Color.YELLOW;
             case PEACEFUL   -> BossBar.Color.YELLOW;
+            case SAFEZONE   -> BossBar.Color.GREEN;
+            case WARZONE    -> BossBar.Color.RED;
             case WILDERNESS -> BossBar.Color.WHITE;
         };
     }

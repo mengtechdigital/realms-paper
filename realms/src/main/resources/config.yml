@@ -120,6 +120,8 @@ colors:
   enemy:      "&c"   # red
   neutral:    "&e"   # yellow
   peaceful:   "&6"   # gold (overrides relation color when target is peaceful)
+  safezone:   "&2"   # dark green — admin-defined safezone
+  warzone:    "&4"   # dark red   — admin-defined warzone
 
 # Home / spawn teleport tuning.
 home:

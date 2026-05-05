@@ -19,6 +19,7 @@ import com.realms.listener.PowerLedgerListener;
 import com.realms.listener.PrefixUpdater;
 import com.realms.listener.ProtectionListener;
 import com.realms.manager.AdminBypass;
+import com.realms.manager.AdminZoneManager;
 import com.realms.manager.AllyProposalStore;
 import com.realms.manager.ClaimAccess;
 import com.realms.manager.ClaimManager;
@@ -61,6 +62,7 @@ public final class RealmsPlugin extends JavaPlugin {
     private TerritoryDisplayTask territoryTask;
     private LuckPermsHook luckPermsHook;
     private PrefixUpdater prefixUpdater;
+    private AdminZoneManager adminZoneManager;
 
     @Override
     public void onEnable() {
@@ -99,6 +101,7 @@ public final class RealmsPlugin extends JavaPlugin {
         this.palette = new Palette(config, store, diplomacyManager, powerCalc);
         this.showClaimManager = new ShowClaimManager(config, store, palette);
         this.territoryTask = new TerritoryDisplayTask(config, store, displayPrefs, palette);
+        this.adminZoneManager = new AdminZoneManager(config, store, confirms);
 
         // Listeners
         getServer().getPluginManager().registerEvents(
@@ -141,7 +144,8 @@ public final class RealmsPlugin extends JavaPlugin {
         // Command
         RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache,
                 realmManager, claimManager, powerCalc, diplomacyManager, overclaimManager,
-                adminBypass, homeManager, displayPrefs, showClaimManager, palette);
+                adminBypass, homeManager, displayPrefs, showClaimManager, palette,
+                adminZoneManager);
         PluginCommand pc = getCommand("realm");
         if (pc != null) {
             pc.setExecutor(cmd);

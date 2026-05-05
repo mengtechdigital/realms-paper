@@ -36,6 +36,10 @@ public final class PowerCalc {
     /** Compute the realm's full power score (base + members + ledger). */
     public long compute(Realm realm) {
         if (realm == null) return 0L;
+        // Admin zones live outside the player power economy. Returning
+        // Long.MAX_VALUE means claim_cost can never exceed capacity, so
+        // they never appear weakened in any code path that asks.
+        if (realm.isAdminZone()) return Long.MAX_VALUE;
         return config.basePower()
                 + memberPower(store.residentCount(realm.id()))
                 + ledgerPower(realm.id());
@@ -57,6 +61,9 @@ public final class PowerCalc {
      */
     public void recompute(Realm realm) {
         if (realm == null) return;
+        // Admin zones don't have a meaningful cached_power. Skip the write
+        // so we don't pollute /realm top with sentinel values.
+        if (realm.isAdminZone()) return;
         long fresh = compute(realm);
         store.updateRealm(realm.withCachedPower(fresh));
     }

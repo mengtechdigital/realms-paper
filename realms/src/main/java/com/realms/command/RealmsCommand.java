@@ -5,7 +5,6 @@ import com.realms.RealmsPlugin;
 import com.realms.data.ClaimKey;
 import com.realms.data.NameCache;
 import com.realms.data.Realm;
-import com.realms.data.ClaimKey;
 import com.realms.data.DisplayPrefs;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
@@ -14,6 +13,7 @@ import com.realms.display.DisplayPrefsManager;
 import com.realms.display.Palette;
 import com.realms.display.ShowClaimManager;
 import com.realms.manager.AdminBypass;
+import com.realms.manager.AdminZoneManager;
 import com.realms.manager.ClaimManager;
 import com.realms.manager.DiplomacyManager;
 import com.realms.manager.HomeManager;
@@ -78,6 +78,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private final DisplayPrefsManager displayPrefs;
     private final ShowClaimManager showClaim;
     private final Palette palette;
+    private final AdminZoneManager adminZones;
 
     /** Member-toggleable flags. peaceful is admin-only and lives elsewhere. */
     private static final List<String> MEMBER_FLAGS = Arrays.asList(
@@ -88,7 +89,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                          PowerCalc power, DiplomacyManager diplomacy, OverclaimManager overclaim,
                          AdminBypass adminBypass, HomeManager home,
                          DisplayPrefsManager displayPrefs, ShowClaimManager showClaim,
-                         Palette palette) {
+                         Palette palette, AdminZoneManager adminZones) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
@@ -103,6 +104,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         this.displayPrefs = displayPrefs;
         this.showClaim = showClaim;
         this.palette = palette;
+        this.adminZones = adminZones;
     }
 
     @Override
@@ -243,9 +245,16 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(Text.colorize("&cClaim ownership orphaned (no realm row). Tell an op."));
             return;
         }
+        Palette.Relation rel = palette.relationFor(player, owner);
+        String tag = "";
+        if (realm.isAdminZone()) {
+            tag = " &7[" + realm.zoneType().name().toLowerCase(Locale.ROOT) + "]";
+        } else if (realm.peaceful()) {
+            tag = " &6[Peaceful]";
+        }
         player.sendMessage(Text.colorize(
-                "&6" + realm.name() + "&7 — chunk (" + k.chunkX() + "," + k.chunkZ() + ") in " + k.world()
-                        + (realm.peaceful() ? " &6[Peaceful]" : "")));
+                palette.code(rel) + realm.name() + "&7 — chunk ("
+                        + k.chunkX() + "," + k.chunkZ() + ") in " + k.world() + tag));
     }
 
     private void runWho(Player player, String[] args) {
@@ -279,13 +288,26 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Text.colorize("&7No realms exist yet."));
             return;
         }
-        all.sort((a, b) -> Long.compare(b.cachedPower(), a.cachedPower()));
+        // Sort: player realms first by power desc, admin zones last by name.
+        all.sort((a, b) -> {
+            if (a.isAdminZone() != b.isAdminZone()) return a.isAdminZone() ? 1 : -1;
+            if (a.isAdminZone()) return a.name().compareToIgnoreCase(b.name());
+            return Long.compare(b.cachedPower(), a.cachedPower());
+        });
         StringBuilder sb = new StringBuilder(Text.colorize("&6Realms &7(" + all.size() + ")\n"));
         for (Realm r : all) {
-            sb.append(Text.colorize("  &7- &6" + r.name()
-                    + " &7[" + store.residentCount(r.id()) + " members, "
-                    + store.claimCount(r.id()) + " chunks, " + r.cachedPower() + " power]"
-                    + (r.peaceful() ? " &6[Peaceful]" : "") + "\n"));
+            if (r.isAdminZone()) {
+                String c = r.zoneType() == com.realms.data.ZoneType.SAFEZONE
+                        ? config.colorSafezone() : config.colorWarzone();
+                sb.append(Text.colorize("  &7- " + c + r.name()
+                        + " &7[" + r.zoneType().name().toLowerCase(Locale.ROOT)
+                        + ", " + store.claimCount(r.id()) + " chunks]\n"));
+            } else {
+                sb.append(Text.colorize("  &7- &6" + r.name()
+                        + " &7[" + store.residentCount(r.id()) + " members, "
+                        + store.claimCount(r.id()) + " chunks, " + r.cachedPower() + " power]"
+                        + (r.peaceful() ? " &6[Peaceful]" : "") + "\n"));
+            }
         }
         sender.sendMessage(sb.toString().stripTrailing());
     }
@@ -313,6 +335,17 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             return;
         }
         if (realm == null) return;
+        if (realm.isAdminZone()) {
+            String c = realm.zoneType() == com.realms.data.ZoneType.SAFEZONE
+                    ? config.colorSafezone() : config.colorWarzone();
+            sender.sendMessage(Text.colorize(
+                    c + realm.name() + " &7— admin zone (&e"
+                            + realm.zoneType().name().toLowerCase(Locale.ROOT) + "&7)" +
+                    "\n  &7Chunks: &f" + store.claimCount(realm.id()) +
+                    "\n  &7No residents, no power, no overclaim."
+            ));
+            return;
+        }
         sender.sendMessage(Text.colorize(
                 "&6" + realm.name() + " &7— founded by " + nameCache.getOr(realm.founder(), "?") +
                 "\n  &7Members: &f" + store.residentCount(realm.id()) +
@@ -375,7 +408,10 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         // and (in rare cases) IllegalArgumentException from TimSort.
         record TopRow(Realm realm, int members, int chunks) {}
         List<TopRow> rows = new ArrayList<>();
+        // Admin zones live outside the player power economy; excluding them
+        // here keeps /realm top a leaderboard of player realms only.
         for (Realm r : store.allRealms()) {
+            if (r.isAdminZone()) continue;
             rows.add(new TopRow(r, store.residentCount(r.id()), store.claimCount(r.id())));
         }
         java.util.Comparator<TopRow> cmp = switch (sortMode) {
@@ -526,8 +562,64 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         switch (sub) {
             case "peaceful" -> runAdminPeaceful(player, args);
             case "bypass" -> runAdminBypass(player);
+            case "zone" -> runAdminZone(player, args);
             default -> player.sendMessage(Text.colorize(
-                    "&7Usage: /realm admin <peaceful|bypass|delete|unclaim>"));
+                    "&7Usage: /realm admin <peaceful|bypass|zone>"));
+        }
+    }
+
+    private void runAdminZone(Player player, String[] args) {
+        // args: [admin, zone, <op>, ...]
+        if (args.length < 3) {
+            player.sendMessage(Text.colorize(
+                    "&7Usage: /realm admin zone <create|claim|unclaim|delete|list> ..."));
+            return;
+        }
+        String op = args[2].toLowerCase(Locale.ROOT);
+        switch (op) {
+            case "create" -> {
+                if (args.length < 5) {
+                    player.sendMessage(Text.colorize(
+                            "&7Usage: /realm admin zone create <name> <safezone|warzone>"));
+                    return;
+                }
+                deliver(player, adminZones.create(player, args[3], args[4]));
+            }
+            case "claim" -> {
+                if (args.length < 4) {
+                    player.sendMessage(Text.colorize("&7Usage: /realm admin zone claim <name>"));
+                    return;
+                }
+                deliver(player, adminZones.claim(player, args[3]));
+            }
+            case "unclaim" -> deliver(player, adminZones.unclaim(player));
+            case "delete" -> {
+                if (args.length < 4) {
+                    player.sendMessage(Text.colorize(
+                            "&7Usage: /realm admin zone delete <name> [confirm]"));
+                    return;
+                }
+                boolean confirm = args.length >= 5 && args[4].equalsIgnoreCase("confirm");
+                deliver(player, adminZones.delete(player, args[3], confirm));
+            }
+            case "list" -> {
+                java.util.List<Realm> zones = adminZones.list();
+                if (zones.isEmpty()) {
+                    player.sendMessage(Text.colorize("&7No admin zones defined."));
+                    return;
+                }
+                StringBuilder sb = new StringBuilder(Text.colorize("&6Admin zones\n"));
+                for (Realm z : zones) {
+                    String c = palette.code(z.zoneType() == com.realms.data.ZoneType.SAFEZONE
+                            ? Palette.Relation.SAFEZONE : Palette.Relation.WARZONE);
+                    sb.append(Text.colorize("  " + c + z.name()
+                            + " &7[" + z.zoneType().name().toLowerCase(Locale.ROOT)
+                            + ", " + store.claimCount(z.id()) + " chunks]\n"));
+                }
+                player.sendMessage(sb.toString().stripTrailing());
+            }
+            default -> player.sendMessage(Text.colorize(
+                    "&7Usage: /realm admin zone <create|claim|unclaim|delete|list> ..."));
         }
     }
 
@@ -589,7 +681,9 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                 + palette.code(Palette.Relation.ALLY) + "A&8 ally   "
                 + palette.code(Palette.Relation.ENEMY) + "E&8 enemy   "
                 + palette.code(Palette.Relation.NEUTRAL) + "N&8 neutral   "
-                + palette.code(Palette.Relation.PEACEFUL) + "P&8 peaceful"));
+                + palette.code(Palette.Relation.PEACEFUL) + "P&8 peaceful   "
+                + palette.code(Palette.Relation.SAFEZONE) + "S&8 safe   "
+                + palette.code(Palette.Relation.WARZONE) + "W&8 war"));
         player.sendMessage(sb.toString());
     }
 
@@ -600,6 +694,8 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case ENEMY      -> "E";
             case NEUTRAL    -> "N";
             case PEACEFUL   -> "P";
+            case SAFEZONE   -> "S";
+            case WARZONE    -> "W";
             case WILDERNESS -> "·";
         };
     }
@@ -757,7 +853,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                 case "claim" -> List.of("1", "3", "5", "7");
                 case "top", "leaderboard", "lb" -> List.of("power", "members", "chunks", "age");
                 case "flag" -> MEMBER_FLAGS;
-                case "admin" -> List.of("peaceful", "bypass");
+                case "admin" -> List.of("peaceful", "bypass", "zone");
                 case "display" -> List.of("title", "bar", "sound");
                 case "showclaim", "sc", "visualize" -> List.of("line", "wall", "corner", "off");
                 default -> Collections.emptyList();

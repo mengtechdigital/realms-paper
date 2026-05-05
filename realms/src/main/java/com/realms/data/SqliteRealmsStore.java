@@ -169,6 +169,7 @@ public final class SqliteRealmsStore implements RealmsStore {
                     peaceful INTEGER NOT NULL DEFAULT 0,
                     founded_millis INTEGER NOT NULL,
                     cached_power INTEGER NOT NULL DEFAULT 0,
+                    zone_type TEXT NOT NULL DEFAULT 'NORMAL',
                     home_world TEXT,
                     home_x REAL, home_y REAL, home_z REAL,
                     home_yaw REAL, home_pitch REAL
@@ -232,20 +233,45 @@ public final class SqliteRealmsStore implements RealmsStore {
                     sound_on INTEGER NOT NULL DEFAULT 0
                 )""");
         }
+        migrateAddZoneType(c);
+    }
+
+    /**
+     * Idempotent ALTER TABLE for databases created before phase 10 added
+     * the {@code zone_type} column. Detects via PRAGMA table_info so we
+     * don't depend on catching the SQLite "duplicate column" error.
+     */
+    private void migrateAddZoneType(Connection c) throws SQLException {
+        boolean hasColumn = false;
+        try (Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("PRAGMA table_info(realms)")) {
+            while (rs.next()) {
+                if ("zone_type".equalsIgnoreCase(rs.getString("name"))) {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+        if (hasColumn) return;
+        try (Statement st = c.createStatement()) {
+            st.execute("ALTER TABLE realms ADD COLUMN zone_type TEXT NOT NULL DEFAULT 'NORMAL'");
+            plugin.getLogger().info("Migrated realms.zone_type column.");
+        }
     }
 
     private void loadAllIntoCaches(Connection c) throws SQLException {
         try (Statement st = c.createStatement();
              ResultSet rs = st.executeQuery(
                      "SELECT id, name, founder_uuid, peaceful, founded_millis, cached_power, " +
-                             "home_world, home_x, home_y, home_z, home_yaw, home_pitch FROM realms")) {
+                             "zone_type, home_world, home_x, home_y, home_z, home_yaw, home_pitch FROM realms")) {
             while (rs.next()) {
                 Realm r = new Realm(
                         rs.getLong(1), rs.getString(2), UUID.fromString(rs.getString(3)),
                         rs.getInt(4) != 0, rs.getLong(5), rs.getLong(6),
-                        rs.getString(7),
-                        nullableDouble(rs, 8), nullableDouble(rs, 9), nullableDouble(rs, 10),
-                        nullableFloat(rs, 11), nullableFloat(rs, 12)
+                        ZoneType.parse(rs.getString(7)),
+                        rs.getString(8),
+                        nullableDouble(rs, 9), nullableDouble(rs, 10), nullableDouble(rs, 11),
+                        nullableFloat(rs, 12), nullableFloat(rs, 13)
                 );
                 realmsById.put(r.id(), r);
                 realmIdByNameLower.put(r.name().toLowerCase(Locale.ROOT), r.id());
@@ -393,11 +419,12 @@ public final class SqliteRealmsStore implements RealmsStore {
             Realm r = u.realm();
             try (PreparedStatement ps = writerConn.prepareStatement("""
                     INSERT INTO realms(id, name, founder_uuid, peaceful, founded_millis, cached_power,
-                                       home_world, home_x, home_y, home_z, home_yaw, home_pitch)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                                       zone_type, home_world, home_x, home_y, home_z, home_yaw, home_pitch)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(id) DO UPDATE SET
                         name=excluded.name, founder_uuid=excluded.founder_uuid,
                         peaceful=excluded.peaceful, cached_power=excluded.cached_power,
+                        zone_type=excluded.zone_type,
                         home_world=excluded.home_world, home_x=excluded.home_x,
                         home_y=excluded.home_y, home_z=excluded.home_z,
                         home_yaw=excluded.home_yaw, home_pitch=excluded.home_pitch""")) {
@@ -407,9 +434,10 @@ public final class SqliteRealmsStore implements RealmsStore {
                 ps.setInt(4, r.peaceful() ? 1 : 0);
                 ps.setLong(5, r.foundedMillis());
                 ps.setLong(6, r.cachedPower());
-                ps.setString(7, r.homeWorld());
-                setNullable(ps, 8, r.homeX()); setNullable(ps, 9, r.homeY()); setNullable(ps, 10, r.homeZ());
-                setNullableF(ps, 11, r.homeYaw()); setNullableF(ps, 12, r.homePitch());
+                ps.setString(7, r.zoneType().name());
+                ps.setString(8, r.homeWorld());
+                setNullable(ps, 9, r.homeX()); setNullable(ps, 10, r.homeY()); setNullable(ps, 11, r.homeZ());
+                setNullableF(ps, 12, r.homeYaw()); setNullableF(ps, 13, r.homePitch());
                 ps.executeUpdate();
             }
         } else if (op instanceof WriteOp.DeleteRealm d) {
@@ -541,22 +569,26 @@ public final class SqliteRealmsStore implements RealmsStore {
     // ----------------------------------------------------------------------
 
     @Override
-    public synchronized Realm createRealm(String name, UUID founder, boolean peaceful, long foundedMillis) {
+    public synchronized Realm createRealm(String name, UUID founder, boolean peaceful,
+                                          ZoneType zoneType, long foundedMillis) {
+        ZoneType type = zoneType == null ? ZoneType.NORMAL : zoneType;
         // Reserve an id by inserting synchronously so we can return the row.
         try {
             try (PreparedStatement ps = writerConn.prepareStatement(
-                    "INSERT INTO realms(name, founder_uuid, peaceful, founded_millis, cached_power) VALUES (?,?,?,?,0)",
+                    "INSERT INTO realms(name, founder_uuid, peaceful, founded_millis, cached_power, zone_type) "
+                    + "VALUES (?,?,?,?,0,?)",
                     Statement.RETURN_GENERATED_KEYS)) {
                 ps.setString(1, name);
                 ps.setString(2, founder.toString());
                 ps.setInt(3, peaceful ? 1 : 0);
                 ps.setLong(4, foundedMillis);
+                ps.setString(5, type.name());
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     if (!keys.next()) throw new SQLException("no generated id for realm");
                     long id = keys.getLong(1);
                     Realm r = new Realm(id, name, founder, peaceful, foundedMillis, 0L,
-                            null, null, null, null, null, null);
+                            type, null, null, null, null, null, null);
                     realmsById.put(id, r);
                     realmIdByNameLower.put(name.toLowerCase(Locale.ROOT), id);
                     claimsByRealm.put(id, ConcurrentHashMap.newKeySet());
