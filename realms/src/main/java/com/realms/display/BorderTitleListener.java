@@ -18,6 +18,8 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.Location;
 
 import java.time.Duration;
 import java.util.Map;
@@ -51,13 +53,37 @@ public final class BorderTitleListener implements Listener {
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
-        if (event.getFrom().getChunk().equals(event.getTo().getChunk())) return;
+        // Coord-based chunk filter — calling getChunk() forces a chunk load
+        // and relies on Chunk.equals semantics that vary across Paper builds.
+        // The shift-by-4 form (block coord >> 4) gives the chunk index for
+        // both positive and negative coords (vs. integer division which
+        // truncates toward zero and breaks at -1).
+        if (sameChunk(event.getFrom(), event.getTo())) return;
+        check(event.getPlayer(), ClaimKey.of(event.getTo()));
+    }
+
+    /**
+     * PlayerMoveEvent doesn't fire for teleports — /spawn, /tp, ender pearls,
+     * /realm home all jump the player without a move event in between. The
+     * title would otherwise stay stuck on the previous chunk's owner.
+     */
+    @EventHandler
+    public void onTeleport(PlayerTeleportEvent event) {
+        if (event.getTo() == null) return;
+        if (sameChunk(event.getFrom(), event.getTo())) return;
         check(event.getPlayer(), ClaimKey.of(event.getTo()));
     }
 
     @EventHandler
     public void onWorld(PlayerChangedWorldEvent event) {
         check(event.getPlayer(), ClaimKey.of(event.getPlayer().getLocation()));
+    }
+
+    private static boolean sameChunk(Location a, Location b) {
+        if (a == null || b == null) return false;
+        if (a.getWorld() != b.getWorld()) return false;
+        return (a.getBlockX() >> 4) == (b.getBlockX() >> 4)
+                && (a.getBlockZ() >> 4) == (b.getBlockZ() >> 4);
     }
 
     @EventHandler
