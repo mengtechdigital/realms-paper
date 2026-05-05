@@ -6,6 +6,7 @@ import com.realms.data.DisplayPrefs;
 import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.manager.Text;
+import com.realms.manager.Text;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -73,7 +74,17 @@ public final class TerritoryDisplayTask extends BukkitRunnable {
         Long ownerId = store.claimOwner(ClaimKey.of(p.getLocation()));
         Palette.Relation rel = palette.relationFor(p, ownerId);
         String text = composeLine(p, ownerId, rel);
-        p.sendActionBar(legacy(text));
+        sendActionBarLegacy(p, Text.colorize(text));
+    }
+
+    /**
+     * Paper#sendActionBar(String) is deprecated but reliable across Paper
+     * builds; the Adventure Component path was producing empty action bars
+     * in some configurations (same root cause as the showTitle issue).
+     */
+    @SuppressWarnings("deprecation")
+    private static void sendActionBarLegacy(Player p, String text) {
+        p.sendActionBar(text);
     }
 
     private void renderBossBar(Player p) {
