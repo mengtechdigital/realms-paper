@@ -9,6 +9,7 @@ import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import com.realms.data.Role;
 import com.realms.manager.ClaimManager;
+import com.realms.manager.PowerCalc;
 import com.realms.manager.RealmManager;
 import com.realms.manager.Result;
 import com.realms.manager.Text;
@@ -60,15 +61,18 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private final NameCache nameCache;
     private final RealmManager realms;
     private final ClaimManager claims;
+    private final PowerCalc power;
 
     public RealmsCommand(RealmsPlugin plugin, RealmsConfig config, RealmsStore store,
-                         NameCache nameCache, RealmManager realms, ClaimManager claims) {
+                         NameCache nameCache, RealmManager realms, ClaimManager claims,
+                         PowerCalc power) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
         this.nameCache = nameCache;
         this.realms = realms;
         this.claims = claims;
+        this.power = power;
     }
 
     @Override
@@ -81,6 +85,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "help" -> { sendHelp(sender); return true; }
             case "list" -> { runList(sender); return true; }
             case "info" -> { runInfo(sender, args); return true; }
+            case "top", "leaderboard", "lb" -> { runTop(sender, args); return true; }
             case "reload" -> { return runReload(sender); }
         }
 
@@ -103,9 +108,9 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "transfer" -> runTransfer(player, args);
             case "here" -> runHere(player);
             case "who" -> runWho(player, args);
-            // Phase 5+: power / overclaim
-            case "power", "top", "leaderboard", "lb",
-                 "flag", "ally", "enemy", "neutral", "allies", "enemies", "relations",
+            case "power" -> runPower(player);
+            // Phase 6+: diplomacy / flags / overclaim / display / chat / admin
+            case "flag", "ally", "enemy", "neutral", "allies", "enemies", "relations",
                  "overclaim",
                  "sethome", "home", "spawn",
                  "map",
@@ -282,6 +287,93 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         ));
     }
 
+    private void runPower(Player player) {
+        Resident me = store.getResident(player.getUniqueId());
+        if (me == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+        Realm realm = store.getRealm(me.realmId());
+        if (realm == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+        // Snapshot counts once — calling residentCount / claimCount twice in
+        // the format string and the math could disagree if a member joins or
+        // a claim is added between the two reads.
+        int memberCount = store.residentCount(realm.id());
+        int chunkCount  = store.claimCount(realm.id());
+        long base = power.basePower();
+        long memberBonus = power.memberPower(memberCount);
+        long ledger = power.ledgerPower(realm.id());
+        long total = base + memberBonus + ledger;
+        long cost = power.claimCost(chunkCount);
+        long spare = total - cost;
+        String weakened = spare < 0 ? " &c[Weakened]" : "";
+        player.sendMessage(Text.colorize(
+                "&6" + realm.name() + " &7— power breakdown\n" +
+                "  &7Base:        &f" + base + "\n" +
+                "  &7Members:     &f" + memberBonus + " &8(" + memberCount + " × " + config.perMemberPower() + ")\n" +
+                "  &7Power blocks:&f " + ledger + "\n" +
+                "  &7---\n" +
+                "  &7Capacity:    &a" + total + "\n" +
+                "  &7Claimed:     &e" + cost + " &8(" + chunkCount + " chunks × " + config.costPerChunk() + ")\n" +
+                "  &7Spare:       &b" + spare + weakened
+        ));
+    }
+
+    private void runTop(CommandSender sender, String[] args) {
+        String sortMode = "power";
+        int page = 1;
+        if (args.length >= 2) {
+            String arg = args[1].toLowerCase(Locale.ROOT);
+            if (arg.equals("power") || arg.equals("members") || arg.equals("chunks") || arg.equals("age")) {
+                sortMode = arg;
+                if (args.length >= 3) {
+                    try { page = Math.max(1, Integer.parseInt(args[2])); } catch (NumberFormatException ignored) {}
+                }
+            } else {
+                try { page = Math.max(1, Integer.parseInt(arg)); } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        // Snapshot member/chunk counts up front — TimSort requires a
+        // consistent comparator across the whole sort. Live counts could
+        // drift mid-sort if a player joins/claims, producing wrong order
+        // and (in rare cases) IllegalArgumentException from TimSort.
+        record TopRow(Realm realm, int members, int chunks) {}
+        List<TopRow> rows = new ArrayList<>();
+        for (Realm r : store.allRealms()) {
+            rows.add(new TopRow(r, store.residentCount(r.id()), store.claimCount(r.id())));
+        }
+        java.util.Comparator<TopRow> cmp = switch (sortMode) {
+            case "members" -> java.util.Comparator.comparingInt(TopRow::members).reversed();
+            case "chunks"  -> java.util.Comparator.comparingInt(TopRow::chunks).reversed();
+            case "age"     -> java.util.Comparator.comparingLong(t -> t.realm().foundedMillis());
+            default        -> java.util.Comparator.<TopRow>comparingLong(t -> t.realm().cachedPower()).reversed();
+        };
+        rows.sort(cmp);
+
+        int perPage = 10;
+        int totalPages = Math.max(1, (rows.size() + perPage - 1) / perPage);
+        if (page > totalPages) page = totalPages;
+        int from = (page - 1) * perPage;
+        int to = Math.min(from + perPage, rows.size());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(Text.colorize("&6Realms &7— top by &e" + sortMode
+                + " &8(page " + page + "/" + totalPages + ")\n"));
+        if (rows.isEmpty()) {
+            sb.append(Text.colorize("  &7No realms exist yet."));
+            sender.sendMessage(sb.toString());
+            return;
+        }
+        for (int i = from; i < to; i++) {
+            TopRow t = rows.get(i);
+            Realm r = t.realm();
+            sb.append(Text.colorize(String.format(
+                    "  &7%2d. &6%s &7— %d power, %d chunks, %d members%s%n",
+                    i + 1, r.name(), r.cachedPower(),
+                    t.chunks(), t.members(),
+                    r.peaceful() ? " &6[Peaceful]" : "")));
+        }
+        sender.sendMessage(sb.toString().stripTrailing());
+    }
+
     private boolean runReload(CommandSender sender) {
         if (!sender.hasPermission("realms.admin")) {
             sender.sendMessage(msg("errors.no-permission", "&cYou don't have permission for that."));
@@ -320,6 +412,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(Text.colorize("  &e/realm unclaim &7— release current chunk"));
         sender.sendMessage(Text.colorize("  &e/realm invite|join|leave|kick &7— membership"));
         sender.sendMessage(Text.colorize("  &e/realm info|here|who|list|power|map &7— info"));
+        sender.sendMessage(Text.colorize("  &e/realm top [power|members|chunks|age] &7— leaderboard"));
         sender.sendMessage(Text.colorize("  &e/realm ally|enemy|neutral &7— diplomacy (later phase)"));
         sender.sendMessage(Text.colorize("  &e/realm flag|home|sethome &7— config (later phase)"));
         sender.sendMessage(Text.colorize("  &e/realm reload &7— reload configs (op)"));
@@ -344,6 +437,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                 case "invite", "kick", "promote", "demote", "transfer" ->
                         Bukkit.getOnlinePlayers().stream().map(Player::getName).sorted().toList();
                 case "claim" -> List.of("1", "3", "5", "7");
+                case "top", "leaderboard", "lb" -> List.of("power", "members", "chunks", "age");
                 default -> Collections.emptyList();
             };
         }

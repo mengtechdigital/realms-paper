@@ -4,6 +4,7 @@ import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.listener.PowerLedgerListener;
 import com.realms.listener.ProtectionListener;
 import com.realms.manager.AdminBypass;
 import com.realms.manager.ClaimAccess;
@@ -62,6 +63,8 @@ public final class RealmsPlugin extends JavaPlugin {
         // Listeners
         getServer().getPluginManager().registerEvents(
                 new ProtectionListener(config, claimAccess, adminBypass), this);
+        getServer().getPluginManager().registerEvents(
+                new PowerLedgerListener(config, store, powerCalc), this);
 
         // Periodic janitor: invites expire on access too, but a sweep keeps
         // the map small on idle servers. Confirm tokens follow the same logic.
@@ -72,7 +75,8 @@ public final class RealmsPlugin extends JavaPlugin {
         }, 20L * 30L, 20L * 30L);
 
         // Command
-        RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache, realmManager, claimManager);
+        RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache,
+                realmManager, claimManager, powerCalc);
         PluginCommand pc = getCommand("realm");
         if (pc != null) {
             pc.setExecutor(cmd);
