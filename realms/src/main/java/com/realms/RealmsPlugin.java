@@ -4,6 +4,12 @@ import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.display.BorderTitleListener;
+import com.realms.display.DisplayPrefsManager;
+import com.realms.display.DisplayQuitListener;
+import com.realms.display.Palette;
+import com.realms.display.ShowClaimManager;
+import com.realms.display.TerritoryDisplayTask;
 import com.realms.listener.ExplosionListener;
 import com.realms.listener.MobListener;
 import com.realms.listener.OverclaimQuitListener;
@@ -15,6 +21,7 @@ import com.realms.manager.ClaimAccess;
 import com.realms.manager.ClaimManager;
 import com.realms.manager.ConfirmStore;
 import com.realms.manager.DiplomacyManager;
+import com.realms.manager.HomeManager;
 import com.realms.manager.InviteStore;
 import com.realms.manager.OverclaimManager;
 import com.realms.manager.PowerCalc;
@@ -44,6 +51,11 @@ public final class RealmsPlugin extends JavaPlugin {
     private AllyProposalStore allyProposals;
     private DiplomacyManager diplomacyManager;
     private OverclaimManager overclaimManager;
+    private HomeManager homeManager;
+    private DisplayPrefsManager displayPrefs;
+    private Palette palette;
+    private ShowClaimManager showClaimManager;
+    private TerritoryDisplayTask territoryTask;
 
     @Override
     public void onEnable() {
@@ -77,6 +89,11 @@ public final class RealmsPlugin extends JavaPlugin {
                 this::broadcastOverclaim);
         // Resolve the Diplomacy ↔ Overclaim cycle: setNeutral aborts attempts.
         diplomacyManager.setOverclaimManager(overclaimManager);
+        this.homeManager = new HomeManager(this, config, store);
+        this.displayPrefs = new DisplayPrefsManager(store);
+        this.palette = new Palette(config, store, diplomacyManager, powerCalc);
+        this.showClaimManager = new ShowClaimManager(config, store, palette);
+        this.territoryTask = new TerritoryDisplayTask(config, store, displayPrefs, palette);
 
         // Listeners
         getServer().getPluginManager().registerEvents(
@@ -89,6 +106,11 @@ public final class RealmsPlugin extends JavaPlugin {
                 new ExplosionListener(config, store, powerCalc), this);
         getServer().getPluginManager().registerEvents(
                 new MobListener(store), this);
+        getServer().getPluginManager().registerEvents(homeManager, this);
+        getServer().getPluginManager().registerEvents(
+                new BorderTitleListener(config, store, nameCache, displayPrefs, palette), this);
+        getServer().getPluginManager().registerEvents(
+                new DisplayQuitListener(territoryTask, showClaimManager), this);
 
         // Periodic janitor + overclaim tick.
         getServer().getScheduler().runTaskTimer(this, () -> {
@@ -98,11 +120,15 @@ public final class RealmsPlugin extends JavaPlugin {
             store.purgeExpiredCooldowns(System.currentTimeMillis());
         }, 20L * 30L, 20L * 30L);
         getServer().getScheduler().runTaskTimer(this, overclaimManager::tick, 20L, 20L);
+        territoryTask.runTaskTimer(this,
+                config.actionBarRefreshTicks(), config.actionBarRefreshTicks());
+        showClaimManager.runTaskTimer(this,
+                config.seeClaimsRefreshTicks(), config.seeClaimsRefreshTicks());
 
         // Command
         RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache,
                 realmManager, claimManager, powerCalc, diplomacyManager, overclaimManager,
-                adminBypass);
+                adminBypass, homeManager, displayPrefs, showClaimManager, palette);
         PluginCommand pc = getCommand("realm");
         if (pc != null) {
             pc.setExecutor(cmd);

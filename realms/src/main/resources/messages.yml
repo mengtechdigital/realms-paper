@@ -35,6 +35,9 @@ errors:
   already-allies: "&cYou are already allied with &e{realm}&c."
   already-neutral: "&cYou are already neutral with &e{realm}&c."
   chunk-not-overclaimable: "&cYou can only overclaim chunks owned by another realm."
+  no-home: "&cYour realm has no home set. Mayor can set it via &e/realm sethome&c."
+  home-cooldown: "&cYou must wait &e{n}s&c before teleporting home again."
+  showclaim-disabled: "&cShow-claims is disabled on this server."
   raid-disabled: "&cRaiding is disabled on this server."
   not-enemy: "&cYou can only overclaim enemies."
   target-peaceful: "&cThat realm is under peaceful protection."
@@ -81,6 +84,9 @@ info:
   showclaim-on: "&aShow-claims is now &eON&a (mode: &e{mode}&a)."
   showclaim-off: "&aShow-claims is now &eOFF&a."
   showclaim-busy: "&cToo many users showing claims right now. Try later."
+  sethome-success: "&aRealm home set to your current location."
+  home-warming: "&eTeleporting in &6{n}s&e — don't move and don't take damage."
+  home-teleporting: "&aTeleporting home..."
 
 broadcasts:
   realm-founded: "&6A new realm &6{realm}&7 has been founded by &e{player}&7."

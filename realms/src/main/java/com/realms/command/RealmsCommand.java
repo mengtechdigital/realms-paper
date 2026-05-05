@@ -5,12 +5,18 @@ import com.realms.RealmsPlugin;
 import com.realms.data.ClaimKey;
 import com.realms.data.NameCache;
 import com.realms.data.Realm;
+import com.realms.data.ClaimKey;
+import com.realms.data.DisplayPrefs;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import com.realms.data.Role;
+import com.realms.display.DisplayPrefsManager;
+import com.realms.display.Palette;
+import com.realms.display.ShowClaimManager;
 import com.realms.manager.AdminBypass;
 import com.realms.manager.ClaimManager;
 import com.realms.manager.DiplomacyManager;
+import com.realms.manager.HomeManager;
 import com.realms.manager.OverclaimManager;
 import com.realms.manager.PowerCalc;
 import com.realms.manager.RealmManager;
@@ -68,6 +74,10 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private final DiplomacyManager diplomacy;
     private final OverclaimManager overclaim;
     private final AdminBypass adminBypass;
+    private final HomeManager home;
+    private final DisplayPrefsManager displayPrefs;
+    private final ShowClaimManager showClaim;
+    private final Palette palette;
 
     /** Member-toggleable flags. peaceful is admin-only and lives elsewhere. */
     private static final List<String> MEMBER_FLAGS = Arrays.asList(
@@ -76,7 +86,9 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     public RealmsCommand(RealmsPlugin plugin, RealmsConfig config, RealmsStore store,
                          NameCache nameCache, RealmManager realms, ClaimManager claims,
                          PowerCalc power, DiplomacyManager diplomacy, OverclaimManager overclaim,
-                         AdminBypass adminBypass) {
+                         AdminBypass adminBypass, HomeManager home,
+                         DisplayPrefsManager displayPrefs, ShowClaimManager showClaim,
+                         Palette palette) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
@@ -87,6 +99,10 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         this.diplomacy = diplomacy;
         this.overclaim = overclaim;
         this.adminBypass = adminBypass;
+        this.home = home;
+        this.displayPrefs = displayPrefs;
+        this.showClaim = showClaim;
+        this.palette = palette;
     }
 
     @Override
@@ -132,12 +148,14 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "overclaim" -> deliver(player, overclaim.start(player));
             case "flag" -> runFlag(player, args);
             case "admin" -> runAdmin(player, args);
-            // Phase 8+: display / chat / home / map
-            case "sethome", "home", "spawn",
-                 "map",
-                 "display", "togglebar", "showclaim", "sc", "visualize",
-                 "chat"
-                 -> player.sendMessage(Text.colorize("&7(Subcommand &e/" + label + " " + sub + "&7 lands in a later phase.)"));
+            case "sethome" -> deliver(player, home.setHome(player));
+            case "home", "spawn" -> deliver(player, home.home(player));
+            case "map" -> runMap(player);
+            case "display" -> runDisplay(player, args);
+            case "togglebar" -> runToggleBar(player);
+            case "showclaim", "sc", "visualize" -> runShowClaim(player, args);
+            case "chat" -> player.sendMessage(Text.colorize(
+                    "&7Realm chat lands in phase 9. Use &e/rc &7there."));
             default -> player.sendMessage(msg("errors.unknown-subcommand",
                     "&cUnknown subcommand. Try &e/realm help&c."));
         }
@@ -548,6 +566,132 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         };
     }
 
+    private void runMap(Player player) {
+        // 11×11 ASCII grid centered on player's chunk. North is up. The
+        // player's chunk is shown as a large highlighted square.
+        ClaimKey center = ClaimKey.of(player.getLocation());
+        int radius = 5;
+        StringBuilder sb = new StringBuilder(Text.colorize(
+                "&6Realm map &7— centered on (" + center.chunkX() + ", " + center.chunkZ() + ")\n"));
+        for (int dz = -radius; dz <= radius; dz++) {
+            StringBuilder row = new StringBuilder();
+            for (int dx = -radius; dx <= radius; dx++) {
+                ClaimKey k = center.offset(dx, dz);
+                Long ownerId = store.claimOwner(k);
+                Palette.Relation rel = palette.relationFor(player, ownerId);
+                String glyph = (dx == 0 && dz == 0) ? "+" : ownerId == null ? "·" : glyphFor(rel);
+                row.append(palette.code(rel)).append(glyph);
+            }
+            sb.append("  ").append(Text.colorize(row.toString())).append('\n');
+        }
+        sb.append(Text.colorize("&8  · wilderness   "
+                + palette.code(Palette.Relation.OWN) + "O&8 own   "
+                + palette.code(Palette.Relation.ALLY) + "A&8 ally   "
+                + palette.code(Palette.Relation.ENEMY) + "E&8 enemy   "
+                + palette.code(Palette.Relation.NEUTRAL) + "N&8 neutral   "
+                + palette.code(Palette.Relation.PEACEFUL) + "P&8 peaceful"));
+        player.sendMessage(sb.toString());
+    }
+
+    private static String glyphFor(Palette.Relation rel) {
+        return switch (rel) {
+            case OWN        -> "O";
+            case ALLY       -> "A";
+            case ENEMY      -> "E";
+            case NEUTRAL    -> "N";
+            case PEACEFUL   -> "P";
+            case WILDERNESS -> "·";
+        };
+    }
+
+    private void runDisplay(Player player, String[] args) {
+        DisplayPrefs current = displayPrefs.of(player);
+        if (args.length < 2) {
+            player.sendMessage(Text.colorize(
+                    "&6Display preferences\n" +
+                    "  &7Title:  &f" + (current.titleOn() ? "on" : "off") + "\n" +
+                    "  &7Bar:    &f" + current.barMode().name().toLowerCase(Locale.ROOT) + "\n" +
+                    "  &7Sound:  &f" + (current.soundOn() ? "on" : "off") + "\n" +
+                    "  &7Usage: &e/realm display <title|bar|sound> <on|off|action|boss>"));
+            return;
+        }
+        String which = args[1].toLowerCase(Locale.ROOT);
+        if (args.length < 3) {
+            player.sendMessage(Text.colorize("&7Usage: /realm display " + which + " <on|off|action|boss>"));
+            return;
+        }
+        String value = args[2].toLowerCase(Locale.ROOT);
+        switch (which) {
+            case "title" -> {
+                displayPrefs.setTitle(player, isOn(value));
+                player.sendMessage(Text.colorize("&aTitle: &e" + (isOn(value) ? "on" : "off")));
+            }
+            case "sound" -> {
+                displayPrefs.setSound(player, isOn(value));
+                player.sendMessage(Text.colorize("&aSound: &e" + (isOn(value) ? "on" : "off")));
+            }
+            case "bar" -> {
+                DisplayPrefs.BarMode mode = switch (value) {
+                    case "action" -> DisplayPrefs.BarMode.ACTION;
+                    case "boss"   -> DisplayPrefs.BarMode.BOSS;
+                    case "off"    -> DisplayPrefs.BarMode.OFF;
+                    default -> null;
+                };
+                if (mode == null) {
+                    player.sendMessage(Text.colorize("&cUnknown bar mode. Use action|boss|off."));
+                    return;
+                }
+                displayPrefs.setBar(player, mode);
+                player.sendMessage(Text.colorize("&aBar: &e" + mode.name().toLowerCase(Locale.ROOT)));
+            }
+            default -> player.sendMessage(Text.colorize(
+                    "&cUnknown setting. Use: title, bar, sound."));
+        }
+    }
+
+    private void runToggleBar(Player player) {
+        DisplayPrefs cur = displayPrefs.of(player);
+        DisplayPrefs.BarMode next = switch (cur.barMode()) {
+            case ACTION -> DisplayPrefs.BarMode.OFF;
+            case OFF    -> DisplayPrefs.BarMode.BOSS;
+            case BOSS   -> DisplayPrefs.BarMode.ACTION;
+        };
+        displayPrefs.setBar(player, next);
+        player.sendMessage(Text.colorize("&aTerritory bar: &e"
+                + next.name().toLowerCase(Locale.ROOT)));
+    }
+
+    private void runShowClaim(Player player, String[] args) {
+        ShowClaimManager.Mode mode;
+        if (args.length < 2) {
+            mode = parseMode(config.seeClaimsDefaultMode());
+        } else {
+            String v = args[1].toLowerCase(Locale.ROOT);
+            mode = switch (v) {
+                case "off"    -> ShowClaimManager.Mode.OFF;
+                case "line"   -> ShowClaimManager.Mode.LINE;
+                case "wall"   -> ShowClaimManager.Mode.WALL;
+                case "corner" -> ShowClaimManager.Mode.CORNER;
+                default -> null;
+            };
+            if (mode == null) {
+                player.sendMessage(Text.colorize(
+                        "&cUnknown mode. Use: line, wall, corner, off."));
+                return;
+            }
+        }
+        deliver(player, showClaim.toggle(player, mode));
+    }
+
+    private static ShowClaimManager.Mode parseMode(String s) {
+        try { return ShowClaimManager.Mode.valueOf(s.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException e) { return ShowClaimManager.Mode.LINE; }
+    }
+
+    private static boolean isOn(String s) {
+        return s.equalsIgnoreCase("on") || s.equalsIgnoreCase("true") || s.equalsIgnoreCase("yes");
+    }
+
     private boolean runReload(CommandSender sender) {
         if (!sender.hasPermission("realms.admin")) {
             sender.sendMessage(msg("errors.no-permission", "&cYou don't have permission for that."));
@@ -614,6 +758,8 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                 case "top", "leaderboard", "lb" -> List.of("power", "members", "chunks", "age");
                 case "flag" -> MEMBER_FLAGS;
                 case "admin" -> List.of("peaceful", "bypass");
+                case "display" -> List.of("title", "bar", "sound");
+                case "showclaim", "sc", "visualize" -> List.of("line", "wall", "corner", "off");
                 default -> Collections.emptyList();
             };
         }

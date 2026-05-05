@@ -81,7 +81,9 @@ public final class OverclaimManager {
 
         ClaimKey here = ClaimKey.of(player.getLocation());
         Long ownerId = store.claimOwner(here);
-        if (ownerId == null || ownerId == myRealm.id()) {
+        // Long == long auto-boxes — identity comparison only works for cached
+        // ids (-128..127). Use longValue so ids above 127 also resolve.
+        if (ownerId == null || ownerId.longValue() == myRealm.id()) {
             return Result.fail("errors.chunk-not-overclaimable");
         }
         Realm victim = store.getRealm(ownerId);
