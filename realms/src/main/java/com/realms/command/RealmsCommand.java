@@ -821,15 +821,25 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(Text.colorize("&6Realms &7— commands"));
         sender.sendMessage(Text.colorize("  &e/realm create <name> &7— found a realm here"));
+        sender.sendMessage(Text.colorize("  &e/realm disband &7— wipe your realm (mayor, confirm)"));
         sender.sendMessage(Text.colorize("  &e/realm claim [N] &7— claim N×N (odd, ≤ "
                 + config.maxClaimDiameter() + ")"));
         sender.sendMessage(Text.colorize("  &e/realm unclaim &7— release current chunk"));
+        sender.sendMessage(Text.colorize("  &e/realm overclaim &7— take a weakened enemy chunk"));
         sender.sendMessage(Text.colorize("  &e/realm invite|join|leave|kick &7— membership"));
+        sender.sendMessage(Text.colorize("  &e/realm promote|demote|transfer &7— role management (mayor)"));
+        sender.sendMessage(Text.colorize("  &e/realm sethome|home &7— set / teleport realm spawn"));
         sender.sendMessage(Text.colorize("  &e/realm info|here|who|list|power|map &7— info"));
         sender.sendMessage(Text.colorize("  &e/realm top [power|members|chunks|age] &7— leaderboard"));
-        sender.sendMessage(Text.colorize("  &e/realm ally|enemy|neutral &7— diplomacy (later phase)"));
-        sender.sendMessage(Text.colorize("  &e/realm flag|home|sethome &7— config (later phase)"));
-        sender.sendMessage(Text.colorize("  &e/realm reload &7— reload configs (op)"));
+        sender.sendMessage(Text.colorize("  &e/realm ally|enemy|neutral &7— diplomacy"));
+        sender.sendMessage(Text.colorize("  &e/realm allies|enemies|relations &7— list relations"));
+        sender.sendMessage(Text.colorize("  &e/realm flag &7— per-realm flags (mayor/assistant)"));
+        sender.sendMessage(Text.colorize("  &e/realm display|togglebar|showclaim &7— display preferences"));
+        sender.sendMessage(Text.colorize("  &e/rc <message> &7— realm-only chat"));
+        if (sender.hasPermission("realms.admin")) {
+            sender.sendMessage(Text.colorize("  &c/realm admin peaceful|bypass|zone &7— admin tools"));
+            sender.sendMessage(Text.colorize("  &c/realm reload &7— reload configs"));
+        }
     }
 
     // ---- Tab completion ---------------------------------------------------
