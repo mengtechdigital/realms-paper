@@ -119,6 +119,17 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "info" -> { runInfo(sender, args); return true; }
             case "top", "leaderboard", "lb" -> { runTop(sender, args); return true; }
             case "reload" -> { return runReload(sender); }
+            case "power" -> {
+                // /realm power blocks listing is console-friendly; the
+                // realm-specific breakdown still requires a Player.
+                if (args.length >= 2) {
+                    String s = args[1].toLowerCase(Locale.ROOT);
+                    if (s.equals("blocks") || s.equals("values") || s.equals("table")) {
+                        runPowerBlocks(sender);
+                        return true;
+                    }
+                }
+            }
         }
 
         if (!(sender instanceof Player player)) {
@@ -356,6 +367,28 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                         " (" + (int) (double) realm.homeX() + "," + (int) (double) realm.homeY() + ","
                         + (int) (double) realm.homeZ() + ")" : "")
         ));
+    }
+
+    private void runPowerBlocks(CommandSender sender) {
+        Map<org.bukkit.Material, Long> values = config.powerValues();
+        if (values.isEmpty()) {
+            sender.sendMessage(Text.colorize("&7No power blocks configured."));
+            return;
+        }
+        StringBuilder sb = new StringBuilder(Text.colorize(
+                "&6Power blocks &7— place these in your claims to grow realm power"));
+        values.entrySet().stream()
+                .sorted((a, b) -> {
+                    int byValue = Long.compare(b.getValue(), a.getValue());
+                    if (byValue != 0) return byValue;
+                    return a.getKey().name().compareTo(b.getKey().name());
+                })
+                .forEach(e -> sb.append(Text.colorize(
+                        "\n  &7- &e" + e.getKey().name().toLowerCase(Locale.ROOT)
+                                + " &8→ &b+" + e.getValue() + " &7power")));
+        sb.append(Text.colorize(
+                "\n  &8(broken / TNT-mined → power back out; raid drain works the same way)"));
+        sender.sendMessage(sb.toString());
     }
 
     private void runPower(Player player) {
@@ -844,6 +877,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(Text.colorize("  &e/realm promote|demote|transfer &7— role management (mayor)"));
         sender.sendMessage(Text.colorize("  &e/realm sethome|home &7— set / teleport realm spawn"));
         sender.sendMessage(Text.colorize("  &e/realm info|here|who|list|power|map &7— info"));
+        sender.sendMessage(Text.colorize("  &e/realm power blocks &7— list valuable blocks that grow realm power"));
         sender.sendMessage(Text.colorize("  &e/realm top [power|members|chunks|age] &7— leaderboard"));
         sender.sendMessage(Text.colorize("  &e/realm ally|enemy|neutral &7— diplomacy"));
         sender.sendMessage(Text.colorize("  &e/realm allies|enemies|relations &7— list relations"));
@@ -876,6 +910,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                         Bukkit.getOnlinePlayers().stream().map(Player::getName).sorted().toList();
                 case "claim" -> List.of("1", "3", "5", "7");
                 case "top", "leaderboard", "lb" -> List.of("power", "members", "chunks", "age");
+                case "power" -> List.of("blocks");
                 case "flag" -> MEMBER_FLAGS;
                 case "admin" -> List.of("peaceful", "bypass", "zone");
                 case "display" -> List.of("title", "bar", "sound");
