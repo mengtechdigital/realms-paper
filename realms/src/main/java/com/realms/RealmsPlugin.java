@@ -1,8 +1,15 @@
 package com.realms;
 
+import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.manager.ClaimManager;
+import com.realms.manager.ConfirmStore;
+import com.realms.manager.InviteStore;
+import com.realms.manager.PowerCalc;
+import com.realms.manager.RealmManager;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -15,6 +22,11 @@ public final class RealmsPlugin extends JavaPlugin {
     private RealmsConfig config;
     private SqliteRealmsStore store;
     private NameCache nameCache;
+    private InviteStore invites;
+    private ConfirmStore confirms;
+    private RealmManager realmManager;
+    private ClaimManager claimManager;
+    private PowerCalc powerCalc;
 
     @Override
     public void onEnable() {
@@ -34,7 +46,30 @@ public final class RealmsPlugin extends JavaPlugin {
         this.nameCache = new NameCache();
         for (Player p : getServer().getOnlinePlayers()) nameCache.remember(p);
 
-        getLogger().info("Realms enabled (phase 2 — data layer).");
+        this.invites = new InviteStore();
+        this.confirms = new ConfirmStore(config.confirmExpirySeconds());
+        this.powerCalc = new PowerCalc(config, store);
+        this.realmManager = new RealmManager(config, store, nameCache, invites, confirms, powerCalc);
+        this.claimManager = new ClaimManager(config, store, confirms, powerCalc);
+
+        // Periodic janitor: invites expire on access too, but a sweep keeps
+        // the map small on idle servers. Confirm tokens follow the same logic.
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            invites.purgeExpired();
+            confirms.purgeExpired();
+            store.purgeExpiredCooldowns(System.currentTimeMillis());
+        }, 20L * 30L, 20L * 30L);
+
+        // Command
+        RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache, realmManager, claimManager);
+        PluginCommand pc = getCommand("realm");
+        if (pc != null) {
+            pc.setExecutor(cmd);
+            pc.setTabCompleter(cmd);
+        }
+        // /realmchat will be wired in phase 9 (realm chat).
+
+        getLogger().info("Realms enabled (phase 3 — realm + claim management).");
     }
 
     @Override
@@ -45,4 +80,9 @@ public final class RealmsPlugin extends JavaPlugin {
     public RealmsConfig getRealmsConfig() { return config; }
     public RealmsStore getStore() { return store; }
     public NameCache getNameCache() { return nameCache; }
+    public RealmManager getRealmManager() { return realmManager; }
+    public ClaimManager getClaimManager() { return claimManager; }
+    public PowerCalc getPowerCalc() { return powerCalc; }
+    public InviteStore getInvites() { return invites; }
+    public ConfirmStore getConfirms() { return confirms; }
 }
