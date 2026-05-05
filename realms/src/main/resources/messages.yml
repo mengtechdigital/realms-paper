@@ -93,7 +93,7 @@ info:
   home-warming: "&eTeleporting in &6{n}s&e — don't move and don't take damage."
   home-teleporting: "&aTeleporting home..."
   zone-created: "&aAdmin zone &6{realm}&a created (&e{type}&a)."
-  zone-claim-success: "&aClaimed chunk ({x}, {z}) for admin zone &6{realm}&a."
+  zone-claim-success: "&aClaimed &e{n}&a chunk(s) for admin zone &6{realm}&a (center {x}, {z}; skipped &e{skipped}&a already owned)."
   zone-unclaim-success: "&aUnclaimed chunk ({x}, {z}) from admin zone &6{realm}&a."
   zone-deleted: "&aAdmin zone &6{realm}&a deleted."
 

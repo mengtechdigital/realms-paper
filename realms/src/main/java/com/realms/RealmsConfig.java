@@ -95,6 +95,9 @@ public final class RealmsConfig {
     public long costPerChunk() { return Math.max(1L, config.getLong("power.cost-per-chunk", 1)); }
 
     public int maxClaimDiameter() { return Math.max(1, config.getInt("claim.max-diameter", 7)); }
+    public int maxClaimDiameterAdmin() {
+        return Math.max(1, config.getInt("claim.max-diameter-admin", 31));
+    }
     public int confirmFromDiameter() { return config.getInt("claim.confirm-required-from-diameter", 5); }
     public int confirmExpirySeconds() { return config.getInt("claim.confirm-expiry-seconds", 30); }
 

@@ -20,6 +20,10 @@ power:
 claim:
   # Maximum diameter for /realm claim N. Must be odd. Bigger claims get a confirm prompt.
   max-diameter: 7
+  # Maximum diameter for /realm admin zone claim N. Admin-only, no power
+  # cost, no confirm gate — generous default lets ops stake spawn / arenas
+  # in one shot. Default 31 → up to 961 chunks per command.
+  max-diameter-admin: 31
   # Above this diameter, /realm claim N requires a "confirm" arg.
   confirm-required-from-diameter: 5
   # Confirm token expires after this many seconds.

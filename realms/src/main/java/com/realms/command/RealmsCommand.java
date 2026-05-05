@@ -587,10 +587,20 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             }
             case "claim" -> {
                 if (args.length < 4) {
-                    player.sendMessage(Text.colorize("&7Usage: /realm admin zone claim <name>"));
+                    player.sendMessage(Text.colorize(
+                            "&7Usage: /realm admin zone claim <name> [diameter]"));
                     return;
                 }
-                deliver(player, adminZones.claim(player, args[3]));
+                int diameter = 1;
+                if (args.length >= 5) {
+                    try { diameter = Integer.parseInt(args[4]); }
+                    catch (NumberFormatException e) {
+                        player.sendMessage(Text.colorize(
+                                "&7Usage: /realm admin zone claim <name> [diameter]"));
+                        return;
+                    }
+                }
+                deliver(player, adminZones.claim(player, args[3], diameter));
             }
             case "unclaim" -> deliver(player, adminZones.unclaim(player));
             case "delete" -> {

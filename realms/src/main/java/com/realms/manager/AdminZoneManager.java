@@ -57,27 +57,59 @@ public final class AdminZoneManager {
                 Map.of("realm", name, "type", type.name().toLowerCase(Locale.ROOT)));
     }
 
-    public Result claim(Player op, String zoneName) {
+    public Result claim(Player op, String zoneName, int diameter) {
         Realm zone = store.getRealmByName(zoneName);
         if (zone == null) return Result.fail("errors.realm-not-found",
                 Map.of("realm", zoneName));
         if (!zone.isAdminZone()) return Result.fail("errors.not-admin-zone",
                 Map.of("realm", zoneName));
-        ClaimKey here = ClaimKey.of(op.getLocation());
-        Long owner = store.claimOwner(here);
-        if (owner != null && owner.longValue() == zone.id()) {
+
+        if (diameter < 1) diameter = 1;
+        if (diameter % 2 == 0) return Result.fail("errors.diameter-not-odd");
+        int max = config.maxClaimDiameterAdmin();
+        if (diameter > max) {
+            return Result.fail("errors.diameter-too-large", Map.of("n", String.valueOf(max)));
+        }
+
+        ClaimKey center = ClaimKey.of(op.getLocation());
+        int r = (diameter - 1) / 2;
+
+        // Walk the N×N area:
+        //   - if a cell is wilderness: queue for claim
+        //   - if a cell is already this zone: skip (idempotent extension)
+        //   - if a cell is owned by anything else: abort (atomic — no
+        //     partial mutation; admin re-runs after resolving the conflict)
+        java.util.List<ClaimKey> toClaim = new java.util.ArrayList<>();
+        int alreadyOwned = 0;
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
+                ClaimKey k = center.offset(dx, dz);
+                Long owner = store.claimOwner(k);
+                if (owner == null) {
+                    toClaim.add(k);
+                } else if (owner.longValue() == zone.id()) {
+                    alreadyOwned++;
+                } else {
+                    Realm other = store.getRealm(owner);
+                    return Result.fail("errors.not-wilderness", Map.of(
+                            "realm", other == null ? "?" : other.name(),
+                            "x", String.valueOf(k.chunkX()),
+                            "z", String.valueOf(k.chunkZ())
+                    ));
+                }
+            }
+        }
+        if (toClaim.isEmpty()) {
             return Result.fail("errors.chunk-already-yours");
         }
-        if (owner != null) {
-            Realm other = store.getRealm(owner);
-            return Result.fail("errors.not-wilderness",
-                    Map.of("realm", other == null ? "?" : other.name()));
-        }
-        store.addClaims(zone.id(), java.util.List.of(here), Instant.now().toEpochMilli());
+
+        store.addClaims(zone.id(), toClaim, Instant.now().toEpochMilli());
         return Result.ok("info.zone-claim-success", Map.of(
                 "realm", zone.name(),
-                "x", String.valueOf(here.chunkX()),
-                "z", String.valueOf(here.chunkZ())
+                "x", String.valueOf(center.chunkX()),
+                "z", String.valueOf(center.chunkZ()),
+                "n", String.valueOf(toClaim.size()),
+                "skipped", String.valueOf(alreadyOwned)
         ));
     }
 
