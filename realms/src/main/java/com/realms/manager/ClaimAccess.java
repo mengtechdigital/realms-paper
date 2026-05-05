@@ -2,6 +2,7 @@ package com.realms.manager;
 
 import com.realms.RealmsConfig;
 import com.realms.data.ClaimKey;
+import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import org.bukkit.Location;
@@ -13,69 +14,96 @@ import java.util.UUID;
  * Access-control queries against claims. Pure logic — no side effects.
  * Listeners ask "can this player do X here?" and get yes/no.
  *
- * Owner relations beyond same-realm/different-realm (ally / enemy) are
- * resolved by {@link com.realms.manager.DiplomacyManager} in phase 6;
- * for now, "different realm" is treated as outsider.
+ * Relation semantics:
+ *   canBuild  — only members of the chunk's owning realm.
+ *   canUseAsAlly — members OR allies (door/button/plate/bed access).
+ *   canPvp    — wilderness vanilla; otherwise:
+ *                 same realm: peaceful or pvp-flag-off → block;
+ *                 ally relation: always blocked (peace);
+ *                 enemy relation: always allowed UNLESS victim is in a
+ *                                 peaceful realm (peaceful overrides);
+ *                 neutral: chunk owner's pvp flag (peaceful blocks).
  */
 public final class ClaimAccess {
 
     private final RealmsConfig config;
     private final RealmsStore store;
     private final AdminBypass bypass;
+    private final DiplomacyManager diplomacy;
 
-    public ClaimAccess(RealmsConfig config, RealmsStore store, AdminBypass bypass) {
+    public ClaimAccess(RealmsConfig config, RealmsStore store,
+                       AdminBypass bypass, DiplomacyManager diplomacy) {
         this.config = config;
         this.store = store;
         this.bypass = bypass;
+        this.diplomacy = diplomacy;
     }
 
-    /**
-     * True iff {@code player} is allowed to modify blocks (build/break) at
-     * the given location. Wilderness → always allowed.
-     */
+    /** Modify-the-world authority — members only. */
     public boolean canBuild(Player player, Location at) {
         if (player == null || at == null || at.getWorld() == null) return true;
         if (bypass.is(player.getUniqueId())) return true;
         Long ownerId = store.claimOwner(ClaimKey.of(at));
-        if (ownerId == null) return true; // wilderness
+        if (ownerId == null) return true;
         return isMemberOf(player.getUniqueId(), ownerId);
     }
 
-    /**
-     * True iff {@code player} can interact with a protected block (open
-     * containers, doors, switches, beds, workstations) at this location.
-     * Phase 4 treats containers/doors/etc. uniformly; phase 6 will allow
-     * allies through doors but not containers.
-     */
-    public boolean canInteract(Player player, Location at) {
-        // Same authority as build for phase 4 — both routed through realm
-        // membership. The two stay separate methods so phase 6 can split
-        // them (allies get door/button access but not chest access).
-        return canBuild(player, at);
+    /** Members and allies. Used by door/button/lever/plate/bed interactions. */
+    public boolean canUseAsAlly(Player player, Location at) {
+        if (player == null || at == null || at.getWorld() == null) return true;
+        if (bypass.is(player.getUniqueId())) return true;
+        Long ownerId = store.claimOwner(ClaimKey.of(at));
+        if (ownerId == null) return true;
+        if (isMemberOf(player.getUniqueId(), ownerId)) return true;
+        Resident me = store.getResident(player.getUniqueId());
+        if (me == null) return false;
+        return diplomacy.areAllies(me.realmId(), ownerId);
     }
 
     /**
-     * True iff PvP damage between attacker and victim should resolve
-     * normally; false means the listener should cancel it. Wilderness is
-     * always vanilla. Same-realm members are gated on the realm's "pvp"
-     * flag; peaceful realms force PvP off.
-     *
-     * Phase 6 layers on:
-     *   - allies → always blocked
-     *   - enemies → always allowed (overrides peaceful caveat: see design)
+     * Container / workstation interaction — same authority as build for now;
+     * outsiders and allies are both blocked. Phase split exists so later
+     * tweaks (e.g. ally chest sharing as an opt-in flag) have a hook.
      */
+    public boolean canOpenContainer(Player player, Location at) {
+        return canBuild(player, at);
+    }
+
     public boolean canPvp(Player attacker, Player victim) {
         if (attacker == null || victim == null) return true;
         if (attacker.equals(victim)) return true;
-        Location at = victim.getLocation();
-        Long ownerId = store.claimOwner(ClaimKey.of(at));
-        if (ownerId == null) return true; // wilderness PvP per server defaults
-        var realm = store.getRealm(ownerId);
-        if (realm == null) return true;
-        if (realm.peaceful()) return false;
-        // Hot path — single-key direct read, no defensive copy.
-        if (!store.getFlag(ownerId, "pvp", true)) return false;
-        return true;
+
+        Resident attackerRes = store.getResident(attacker.getUniqueId());
+        Resident victimRes   = store.getResident(victim.getUniqueId());
+        Long attackerRealm = attackerRes == null ? null : attackerRes.realmId();
+        Long victimRealm   = victimRes == null ? null : victimRes.realmId();
+
+        // Peaceful-realm members are immune anywhere; that overrides enemy
+        // declarations (the design's "peaceful absorbs enemy declarations"
+        // rule).
+        if (victimRealm != null) {
+            Realm vr = store.getRealm(victimRealm);
+            if (vr != null && vr.peaceful()) return false;
+        }
+
+        // Same realm — peaceful covered above; pvp flag drives.
+        if (attackerRealm != null && attackerRealm.equals(victimRealm)) {
+            return store.getFlag(attackerRealm, "pvp", true);
+        }
+
+        // Cross-realm relations.
+        if (attackerRealm != null && victimRealm != null) {
+            if (diplomacy.areAllies(attackerRealm, victimRealm)) return false;
+            if (diplomacy.areEnemies(attackerRealm, victimRealm)) return true;
+        }
+
+        // Neutral / one side has no realm — chunk owner's pvp flag rules.
+        Long ownerId = store.claimOwner(ClaimKey.of(victim.getLocation()));
+        if (ownerId == null) return true; // wilderness
+        Realm chunkRealm = store.getRealm(ownerId);
+        if (chunkRealm == null) return true;
+        if (chunkRealm.peaceful()) return false;
+        return store.getFlag(ownerId, "pvp", true);
     }
 
     private boolean isMemberOf(UUID player, long realmId) {

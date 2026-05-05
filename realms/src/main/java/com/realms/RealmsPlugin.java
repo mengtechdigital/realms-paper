@@ -4,15 +4,21 @@ import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.listener.OverclaimQuitListener;
 import com.realms.listener.PowerLedgerListener;
 import com.realms.listener.ProtectionListener;
 import com.realms.manager.AdminBypass;
+import com.realms.manager.AllyProposalStore;
 import com.realms.manager.ClaimAccess;
 import com.realms.manager.ClaimManager;
 import com.realms.manager.ConfirmStore;
+import com.realms.manager.DiplomacyManager;
 import com.realms.manager.InviteStore;
+import com.realms.manager.OverclaimManager;
 import com.realms.manager.PowerCalc;
 import com.realms.manager.RealmManager;
+import com.realms.manager.Text;
+import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -33,6 +39,9 @@ public final class RealmsPlugin extends JavaPlugin {
     private PowerCalc powerCalc;
     private AdminBypass adminBypass;
     private ClaimAccess claimAccess;
+    private AllyProposalStore allyProposals;
+    private DiplomacyManager diplomacyManager;
+    private OverclaimManager overclaimManager;
 
     @Override
     public void onEnable() {
@@ -54,42 +63,61 @@ public final class RealmsPlugin extends JavaPlugin {
 
         this.invites = new InviteStore();
         this.confirms = new ConfirmStore(config.confirmExpirySeconds());
+        this.allyProposals = new AllyProposalStore();
         this.powerCalc = new PowerCalc(config, store);
-        this.realmManager = new RealmManager(config, store, nameCache, invites, confirms, powerCalc);
-        this.claimManager = new ClaimManager(config, store, confirms, powerCalc);
         this.adminBypass = new AdminBypass();
-        this.claimAccess = new ClaimAccess(config, store, adminBypass);
+        this.realmManager = new RealmManager(config, store, nameCache, invites, confirms,
+                powerCalc, allyProposals);
+        this.claimManager = new ClaimManager(config, store, confirms, powerCalc);
+        this.diplomacyManager = new DiplomacyManager(config, store, allyProposals);
+        this.claimAccess = new ClaimAccess(config, store, adminBypass, diplomacyManager);
+        this.overclaimManager = new OverclaimManager(config, store, powerCalc, diplomacyManager,
+                this::broadcastOverclaim);
+        // Resolve the Diplomacy ↔ Overclaim cycle: setNeutral aborts attempts.
+        diplomacyManager.setOverclaimManager(overclaimManager);
 
         // Listeners
         getServer().getPluginManager().registerEvents(
                 new ProtectionListener(config, claimAccess, adminBypass), this);
         getServer().getPluginManager().registerEvents(
                 new PowerLedgerListener(config, store, powerCalc), this);
+        getServer().getPluginManager().registerEvents(
+                new OverclaimQuitListener(overclaimManager), this);
 
-        // Periodic janitor: invites expire on access too, but a sweep keeps
-        // the map small on idle servers. Confirm tokens follow the same logic.
+        // Periodic janitor + overclaim tick.
         getServer().getScheduler().runTaskTimer(this, () -> {
             invites.purgeExpired();
             confirms.purgeExpired();
+            allyProposals.purgeExpired();
             store.purgeExpiredCooldowns(System.currentTimeMillis());
         }, 20L * 30L, 20L * 30L);
+        getServer().getScheduler().runTaskTimer(this, overclaimManager::tick, 20L, 20L);
 
         // Command
         RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache,
-                realmManager, claimManager, powerCalc);
+                realmManager, claimManager, powerCalc, diplomacyManager, overclaimManager);
         PluginCommand pc = getCommand("realm");
         if (pc != null) {
             pc.setExecutor(cmd);
             pc.setTabCompleter(cmd);
         }
-        // /realmchat will be wired in phase 9 (realm chat).
 
-        getLogger().info("Realms enabled (phase 3 — realm + claim management).");
+        getLogger().info("Realms enabled (phase 6 — diplomacy + overclaim).");
     }
 
     @Override
     public void onDisable() {
         if (store != null) store.close();
+    }
+
+    private void broadcastOverclaim(String aggressor, String victim, int loot) {
+        String tpl = config.message("broadcasts.realm-overclaimed",
+                "&c{aggressor}&7 has overclaimed land from &c{victim}&7.");
+        Bukkit.broadcastMessage(Text.render(tpl, java.util.Map.of(
+                "aggressor", aggressor,
+                "victim", victim,
+                "loot", String.valueOf(loot)
+        )));
     }
 
     public RealmsConfig getRealmsConfig() { return config; }
@@ -102,4 +130,6 @@ public final class RealmsPlugin extends JavaPlugin {
     public ConfirmStore getConfirms() { return confirms; }
     public AdminBypass getAdminBypass() { return adminBypass; }
     public ClaimAccess getClaimAccess() { return claimAccess; }
+    public DiplomacyManager getDiplomacy() { return diplomacyManager; }
+    public OverclaimManager getOverclaim() { return overclaimManager; }
 }

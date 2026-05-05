@@ -9,6 +9,8 @@ import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import com.realms.data.Role;
 import com.realms.manager.ClaimManager;
+import com.realms.manager.DiplomacyManager;
+import com.realms.manager.OverclaimManager;
 import com.realms.manager.PowerCalc;
 import com.realms.manager.RealmManager;
 import com.realms.manager.Result;
@@ -62,10 +64,12 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private final RealmManager realms;
     private final ClaimManager claims;
     private final PowerCalc power;
+    private final DiplomacyManager diplomacy;
+    private final OverclaimManager overclaim;
 
     public RealmsCommand(RealmsPlugin plugin, RealmsConfig config, RealmsStore store,
                          NameCache nameCache, RealmManager realms, ClaimManager claims,
-                         PowerCalc power) {
+                         PowerCalc power, DiplomacyManager diplomacy, OverclaimManager overclaim) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
@@ -73,6 +77,8 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         this.realms = realms;
         this.claims = claims;
         this.power = power;
+        this.diplomacy = diplomacy;
+        this.overclaim = overclaim;
     }
 
     @Override
@@ -109,9 +115,15 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "here" -> runHere(player);
             case "who" -> runWho(player, args);
             case "power" -> runPower(player);
-            // Phase 6+: diplomacy / flags / overclaim / display / chat / admin
-            case "flag", "ally", "enemy", "neutral", "allies", "enemies", "relations",
-                 "overclaim",
+            case "ally" -> runAlly(player, args);
+            case "enemy" -> runEnemy(player, args);
+            case "neutral" -> runNeutral(player, args);
+            case "allies" -> runAllies(player);
+            case "enemies" -> runEnemies(player);
+            case "relations" -> runRelations(player);
+            case "overclaim" -> deliver(player, overclaim.start(player));
+            // Phase 7+: flags / display / chat / admin / home
+            case "flag",
                  "sethome", "home", "spawn",
                  "map",
                  "display", "togglebar", "showclaim", "sc", "visualize",
@@ -372,6 +384,53 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                     r.peaceful() ? " &6[Peaceful]" : "")));
         }
         sender.sendMessage(sb.toString().stripTrailing());
+    }
+
+    private void runAlly(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(Text.colorize("&7Usage: /realm ally <realm>")); return; }
+        deliver(p, diplomacy.requestAlly(p, args[1]));
+    }
+    private void runEnemy(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(Text.colorize("&7Usage: /realm enemy <realm>")); return; }
+        deliver(p, diplomacy.declareEnemy(p, args[1]));
+    }
+    private void runNeutral(Player p, String[] args) {
+        if (args.length < 2) { p.sendMessage(Text.colorize("&7Usage: /realm neutral <realm>")); return; }
+        deliver(p, diplomacy.setNeutral(p, args[1]));
+    }
+    private void runAllies(Player p) {
+        Resident me = store.getResident(p.getUniqueId());
+        if (me == null) { deliver(p, Result.fail("errors.not-in-realm")); return; }
+        var list = diplomacy.allies(me.realmId());
+        if (list.isEmpty()) { p.sendMessage(Text.colorize("&7No allies.")); return; }
+        StringBuilder sb = new StringBuilder(Text.colorize("&bAllies:\n"));
+        for (Realm r : list) sb.append(Text.colorize("  &b- " + r.name() + "\n"));
+        p.sendMessage(sb.toString().stripTrailing());
+    }
+    private void runEnemies(Player p) {
+        Resident me = store.getResident(p.getUniqueId());
+        if (me == null) { deliver(p, Result.fail("errors.not-in-realm")); return; }
+        var list = diplomacy.enemies(me.realmId());
+        if (list.isEmpty()) { p.sendMessage(Text.colorize("&7No enemies.")); return; }
+        StringBuilder sb = new StringBuilder(Text.colorize("&cEnemies:\n"));
+        for (Realm r : list) sb.append(Text.colorize("  &c- " + r.name()
+                + (r.peaceful() ? " &6[Peaceful]" : "") + "\n"));
+        p.sendMessage(sb.toString().stripTrailing());
+    }
+    private void runRelations(Player p) {
+        Resident me = store.getResident(p.getUniqueId());
+        if (me == null) { deliver(p, Result.fail("errors.not-in-realm")); return; }
+        StringBuilder sb = new StringBuilder(Text.colorize("&6Relations\n"));
+        var allies = diplomacy.allies(me.realmId());
+        var enemies = diplomacy.enemies(me.realmId());
+        if (allies.isEmpty() && enemies.isEmpty()) {
+            sb.append(Text.colorize("  &7At peace with the world."));
+        } else {
+            for (Realm r : allies)  sb.append(Text.colorize("  &b- ALLY  &f" + r.name() + "\n"));
+            for (Realm r : enemies) sb.append(Text.colorize("  &c- ENEMY &f" + r.name()
+                    + (r.peaceful() ? " &6[Peaceful]" : "") + "\n"));
+        }
+        p.sendMessage(sb.toString().stripTrailing());
     }
 
     private boolean runReload(CommandSender sender) {

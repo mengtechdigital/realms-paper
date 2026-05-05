@@ -35,15 +35,18 @@ public final class RealmManager {
     private final InviteStore invites;
     private final ConfirmStore confirms;
     private final PowerCalc power;
+    private final AllyProposalStore allyProposals;
 
     public RealmManager(RealmsConfig config, RealmsStore store, NameCache nameCache,
-                        InviteStore invites, ConfirmStore confirms, PowerCalc power) {
+                        InviteStore invites, ConfirmStore confirms, PowerCalc power,
+                        AllyProposalStore allyProposals) {
         this.config = config;
         this.store = store;
         this.nameCache = nameCache;
         this.invites = invites;
         this.confirms = confirms;
         this.power = power;
+        this.allyProposals = allyProposals;
     }
 
     // ---- Realm lifecycle --------------------------------------------------
@@ -110,10 +113,12 @@ public final class RealmManager {
         Realm r = store.getRealm(me.realmId());
         long realmId = me.realmId();
         store.deleteRealm(realmId);
-        // Drop any pending invites pointing at the now-deleted realm so
-        // /realm join falls through cleanly. (Join would fail anyway via
-        // realm-not-found, but this keeps the in-memory map tidy.)
+        // Drop any pending invites or ally proposals pointing at the
+        // now-deleted realm so the in-memory maps stay tidy. Join /
+        // ally would fail anyway via realm-not-found, but this keeps
+        // those stores from growing unbounded.
         invites.clearForRealm(realmId);
+        allyProposals.clearForRealm(realmId);
         return Result.ok("info.realm-disbanded",
                 Map.of("realm", r == null ? "?" : r.name()));
     }

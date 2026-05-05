@@ -91,24 +91,30 @@ public final class ProtectionListener implements Listener {
         Block clicked = event.getClickedBlock();
         if (clicked == null) return;
         Material type = clicked.getType();
-        // PHYSICAL = pressure plate / tripwire trigger via player walk; only
-        // care when the surface is a plate (not crops trampled — crops are
-        // handled by canBuild via BlockBreakEvent on dropped soul).
-        if (event.getAction() == Action.PHYSICAL && !ProtectedMaterials.isPressurePlate(type)) {
-            return;
-        }
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
-                && !ProtectedMaterials.isProtectedInteraction(type)) {
-            return;
-        }
-        if (!access.canInteract(event.getPlayer(), clicked.getLocation())) {
-            event.setCancelled(true);
-            // Mark useInteractedBlock as DENY too — Bukkit otherwise still
-            // fires e.g. opening a chest on some legacy paths.
-            event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
-            if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-                denyMessage(event.getPlayer(), "interact");
+        // PHYSICAL = pressure plate / tripwire trigger via player walk.
+        // Plates are ally-permissive: walking on a plate isn't griefing.
+        if (event.getAction() == Action.PHYSICAL) {
+            if (!ProtectedMaterials.isPressurePlate(type)) return;
+            if (!access.canUseAsAlly(event.getPlayer(), clicked.getLocation())) {
+                event.setCancelled(true);
+                event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+                // No message on PHYSICAL — would spam on every step.
             }
+            return;
+        }
+        if (!ProtectedMaterials.isProtectedInteraction(type)) return;
+        // Containers + workstations: members only. Doors/gates/buttons/levers/
+        // beds/plates: members + allies (so allies can navigate your town).
+        boolean ok;
+        if (ProtectedMaterials.isContainer(type) || ProtectedMaterials.isWorkstation(type)) {
+            ok = access.canOpenContainer(event.getPlayer(), clicked.getLocation());
+        } else {
+            ok = access.canUseAsAlly(event.getPlayer(), clicked.getLocation());
+        }
+        if (!ok) {
+            event.setCancelled(true);
+            event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+            denyMessage(event.getPlayer(), "interact");
         }
     }
 
@@ -123,7 +129,10 @@ public final class ProtectionListener implements Listener {
                 return;
             }
         }
-        if (!access.canInteract(event.getPlayer(), target.getLocation())) {
+        // Entity interaction = item frames, armor stands, villagers — treat
+        // as build-level (members only). Allies cannot loot frames or trade
+        // privately with locked villagers.
+        if (!access.canBuild(event.getPlayer(), target.getLocation())) {
             event.setCancelled(true);
             denyMessage(event.getPlayer(), "interact");
         }
