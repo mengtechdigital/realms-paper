@@ -4,6 +4,8 @@ import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.listener.ExplosionListener;
+import com.realms.listener.MobListener;
 import com.realms.listener.OverclaimQuitListener;
 import com.realms.listener.PowerLedgerListener;
 import com.realms.listener.ProtectionListener;
@@ -83,6 +85,10 @@ public final class RealmsPlugin extends JavaPlugin {
                 new PowerLedgerListener(config, store, powerCalc), this);
         getServer().getPluginManager().registerEvents(
                 new OverclaimQuitListener(overclaimManager), this);
+        getServer().getPluginManager().registerEvents(
+                new ExplosionListener(config, store, powerCalc), this);
+        getServer().getPluginManager().registerEvents(
+                new MobListener(store), this);
 
         // Periodic janitor + overclaim tick.
         getServer().getScheduler().runTaskTimer(this, () -> {
@@ -95,7 +101,8 @@ public final class RealmsPlugin extends JavaPlugin {
 
         // Command
         RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache,
-                realmManager, claimManager, powerCalc, diplomacyManager, overclaimManager);
+                realmManager, claimManager, powerCalc, diplomacyManager, overclaimManager,
+                adminBypass);
         PluginCommand pc = getCommand("realm");
         if (pc != null) {
             pc.setExecutor(cmd);

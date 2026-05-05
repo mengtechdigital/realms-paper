@@ -8,6 +8,7 @@ import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import com.realms.data.Role;
+import com.realms.manager.AdminBypass;
 import com.realms.manager.ClaimManager;
 import com.realms.manager.DiplomacyManager;
 import com.realms.manager.OverclaimManager;
@@ -66,10 +67,16 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private final PowerCalc power;
     private final DiplomacyManager diplomacy;
     private final OverclaimManager overclaim;
+    private final AdminBypass adminBypass;
+
+    /** Member-toggleable flags. peaceful is admin-only and lives elsewhere. */
+    private static final List<String> MEMBER_FLAGS = Arrays.asList(
+            "hostile-spawn", "passive-spawn", "mob-griefing", "pvp");
 
     public RealmsCommand(RealmsPlugin plugin, RealmsConfig config, RealmsStore store,
                          NameCache nameCache, RealmManager realms, ClaimManager claims,
-                         PowerCalc power, DiplomacyManager diplomacy, OverclaimManager overclaim) {
+                         PowerCalc power, DiplomacyManager diplomacy, OverclaimManager overclaim,
+                         AdminBypass adminBypass) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
@@ -79,6 +86,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         this.power = power;
         this.diplomacy = diplomacy;
         this.overclaim = overclaim;
+        this.adminBypass = adminBypass;
     }
 
     @Override
@@ -122,13 +130,13 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "enemies" -> runEnemies(player);
             case "relations" -> runRelations(player);
             case "overclaim" -> deliver(player, overclaim.start(player));
-            // Phase 7+: flags / display / chat / admin / home
-            case "flag",
-                 "sethome", "home", "spawn",
+            case "flag" -> runFlag(player, args);
+            case "admin" -> runAdmin(player, args);
+            // Phase 8+: display / chat / home / map
+            case "sethome", "home", "spawn",
                  "map",
                  "display", "togglebar", "showclaim", "sc", "visualize",
-                 "chat",
-                 "admin"
+                 "chat"
                  -> player.sendMessage(Text.colorize("&7(Subcommand &e/" + label + " " + sub + "&7 lands in a later phase.)"));
             default -> player.sendMessage(msg("errors.unknown-subcommand",
                     "&cUnknown subcommand. Try &e/realm help&c."));
@@ -433,6 +441,113 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         p.sendMessage(sb.toString().stripTrailing());
     }
 
+    private void runFlag(Player player, String[] args) {
+        Resident me = store.getResident(player.getUniqueId());
+        if (me == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+        Realm realm = store.getRealm(me.realmId());
+        if (realm == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+
+        if (args.length < 2) {
+            // List current values for member-toggleable flags + show peaceful state.
+            StringBuilder sb = new StringBuilder(Text.colorize(
+                    "&6Flags for " + realm.name() + "\n"));
+            for (String f : MEMBER_FLAGS) {
+                boolean v = store.getFlag(realm.id(), f, config.flagDefault(f, defaultFor(f)));
+                sb.append(Text.colorize("  &7- &e" + f + ": &f" + (v ? "on" : "off") + "\n"));
+            }
+            sb.append(Text.colorize("  &7- &epeaceful&7 (op-only): &f"
+                    + (realm.peaceful() ? "on" : "off")));
+            player.sendMessage(sb.toString());
+            return;
+        }
+        if (!me.role().canManage()) {
+            deliver(player, Result.fail("errors.not-mayor-or-assistant"));
+            return;
+        }
+        String flag = args[1].toLowerCase(Locale.ROOT);
+        if (flag.equals("peaceful")) {
+            deliver(player, Result.fail("errors.flag-op-only"));
+            return;
+        }
+        if (!MEMBER_FLAGS.contains(flag)) {
+            deliver(player, Result.fail("errors.invalid-flag", Map.of(
+                    "flag", flag, "list", String.join(", ", MEMBER_FLAGS))));
+            return;
+        }
+        if (args.length < 3) {
+            player.sendMessage(Text.colorize("&7Usage: /realm flag " + flag + " <on|off>"));
+            return;
+        }
+        boolean on = args[2].equalsIgnoreCase("on") || args[2].equalsIgnoreCase("true")
+                || args[2].equalsIgnoreCase("yes");
+        // Block pvp=on writes while peaceful. Peaceful overrides anyway in
+        // ClaimAccess.canPvp, but persisting pvp=true would: (1) display a
+        // misleading "pvp: on" in /realm flag, (2) outlive the peaceful
+        // toggle if an admin later flips peaceful off, leaking state.
+        if (flag.equals("pvp") && on && realm.peaceful()) {
+            player.sendMessage(Text.colorize(
+                    "&cCannot enable PvP while realm is peaceful. Ask an op to flip peaceful first."));
+            return;
+        }
+        store.setFlag(realm.id(), flag, on);
+        deliver(player, Result.ok("info.flag-set", Map.of(
+                "flag", flag, "value", on ? "on" : "off")));
+    }
+
+    private void runAdmin(Player player, String[] args) {
+        if (!player.hasPermission("realms.admin")) {
+            deliver(player, Result.fail("errors.no-permission"));
+            return;
+        }
+        if (args.length < 2) {
+            player.sendMessage(Text.colorize(
+                    "&7Usage: /realm admin <peaceful|bypass|delete|unclaim>"));
+            return;
+        }
+        String sub = args[1].toLowerCase(Locale.ROOT);
+        switch (sub) {
+            case "peaceful" -> runAdminPeaceful(player, args);
+            case "bypass" -> runAdminBypass(player);
+            default -> player.sendMessage(Text.colorize(
+                    "&7Usage: /realm admin <peaceful|bypass|delete|unclaim>"));
+        }
+    }
+
+    private void runAdminPeaceful(Player player, String[] args) {
+        if (args.length < 4) {
+            player.sendMessage(Text.colorize(
+                    "&7Usage: /realm admin peaceful <realm> <on|off>"));
+            return;
+        }
+        Realm realm = store.getRealmByName(args[2]);
+        if (realm == null) {
+            deliver(player, Result.fail("errors.realm-not-found", Map.of("realm", args[2])));
+            return;
+        }
+        boolean on = args[3].equalsIgnoreCase("on") || args[3].equalsIgnoreCase("true");
+        store.updateRealm(realm.withPeaceful(on));
+        // Forced-off pvp on peaceful → make the visible flag match the de-facto state.
+        if (on) store.setFlag(realm.id(), "pvp", false);
+        player.sendMessage(Text.colorize("&aRealm &6" + realm.name()
+                + "&a peaceful → &e" + (on ? "on" : "off")));
+    }
+
+    private void runAdminBypass(Player player) {
+        boolean nowOn = adminBypass.toggle(player.getUniqueId());
+        player.sendMessage(Text.colorize(nowOn
+                ? "&aAdmin bypass &eON&a — claim protection treats you as a member of every realm."
+                : "&aAdmin bypass &eOFF&a."));
+    }
+
+    /** Default for member-toggleable flags (only consulted if config didn't set one). */
+    private static boolean defaultFor(String flag) {
+        return switch (flag) {
+            case "hostile-spawn", "passive-spawn", "pvp" -> true;
+            case "mob-griefing" -> false;
+            default -> false;
+        };
+    }
+
     private boolean runReload(CommandSender sender) {
         if (!sender.hasPermission("realms.admin")) {
             sender.sendMessage(msg("errors.no-permission", "&cYou don't have permission for that."));
@@ -497,6 +612,8 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                         Bukkit.getOnlinePlayers().stream().map(Player::getName).sorted().toList();
                 case "claim" -> List.of("1", "3", "5", "7");
                 case "top", "leaderboard", "lb" -> List.of("power", "members", "chunks", "age");
+                case "flag" -> MEMBER_FLAGS;
+                case "admin" -> List.of("peaceful", "bypass");
                 default -> Collections.emptyList();
             };
         }
