@@ -4,6 +4,9 @@ import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.listener.ProtectionListener;
+import com.realms.manager.AdminBypass;
+import com.realms.manager.ClaimAccess;
 import com.realms.manager.ClaimManager;
 import com.realms.manager.ConfirmStore;
 import com.realms.manager.InviteStore;
@@ -27,6 +30,8 @@ public final class RealmsPlugin extends JavaPlugin {
     private RealmManager realmManager;
     private ClaimManager claimManager;
     private PowerCalc powerCalc;
+    private AdminBypass adminBypass;
+    private ClaimAccess claimAccess;
 
     @Override
     public void onEnable() {
@@ -51,6 +56,12 @@ public final class RealmsPlugin extends JavaPlugin {
         this.powerCalc = new PowerCalc(config, store);
         this.realmManager = new RealmManager(config, store, nameCache, invites, confirms, powerCalc);
         this.claimManager = new ClaimManager(config, store, confirms, powerCalc);
+        this.adminBypass = new AdminBypass();
+        this.claimAccess = new ClaimAccess(config, store, adminBypass);
+
+        // Listeners
+        getServer().getPluginManager().registerEvents(
+                new ProtectionListener(config, claimAccess, adminBypass), this);
 
         // Periodic janitor: invites expire on access too, but a sweep keeps
         // the map small on idle servers. Confirm tokens follow the same logic.
@@ -85,4 +96,6 @@ public final class RealmsPlugin extends JavaPlugin {
     public PowerCalc getPowerCalc() { return powerCalc; }
     public InviteStore getInvites() { return invites; }
     public ConfirmStore getConfirms() { return confirms; }
+    public AdminBypass getAdminBypass() { return adminBypass; }
+    public ClaimAccess getClaimAccess() { return claimAccess; }
 }

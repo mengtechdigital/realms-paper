@@ -791,6 +791,14 @@ public final class SqliteRealmsStore implements RealmsStore {
     }
 
     @Override
+    public boolean getFlag(long realmId, String flag, boolean defaultValue) {
+        Map<String, Boolean> m = flagsByRealm.get(realmId);
+        if (m == null) return defaultValue;
+        Boolean v = m.get(flag);
+        return v == null ? defaultValue : v;
+    }
+
+    @Override
     public void putRelation(Relation relation) {
         outRelations.computeIfAbsent(relation.realmA(), __ -> new ConcurrentHashMap<>())
                 .put(relation.realmB(), relation);

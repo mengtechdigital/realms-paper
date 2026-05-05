@@ -30,6 +30,8 @@ errors:
   no-pending-invite: "&cNo pending invite to &e{realm}&c."
   mayor-cannot-leave: "&cMayors must &e/realm transfer&c or &e/realm disband&c first."
   cannot-target-mayor: "&cCannot do that to the mayor."
+  protection-deny-build: "&cYou can't build here — this land belongs to another realm."
+  protection-deny-interact: "&cYou can't interact with that — protected by another realm."
   raid-disabled: "&cRaiding is disabled on this server."
   not-enemy: "&cYou can only overclaim enemies."
   target-peaceful: "&cThat realm is under peaceful protection."

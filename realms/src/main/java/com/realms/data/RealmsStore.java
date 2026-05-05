@@ -87,6 +87,13 @@ public interface RealmsStore {
 
     Map<String, Boolean> flagsOf(long realmId);
 
+    /**
+     * Direct read of a single flag — avoids the defensive-copy allocation in
+     * {@link #flagsOf} on hot paths (PvP damage tick, every interact). Returns
+     * {@code defaultValue} when the realm has never set the flag.
+     */
+    boolean getFlag(long realmId, String flag, boolean defaultValue);
+
     // -- Relations -----------------------------------------------------------
 
     /** Insert or replace a directed relation. */
