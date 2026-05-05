@@ -11,9 +11,13 @@ realm-name:
 
 power:
   # Base power any realm starts with (in chunks-of-capacity).
-  base: 30
-  # Power added per resident.
-  per-member-bonus: 20
+  # Tuned for "world is finite" servers — solo realms can stake out a
+  # small starter base, but real expansion requires grinding scarce
+  # power blocks (see power-blocks.yml) or recruiting members.
+  base: 16
+  # Power added per resident. Recruiting is meaningful but not free
+  # land — 5 members = 50 extra chunks, not 100.
+  per-member-bonus: 10
   # Power consumed per claimed chunk.
   cost-per-chunk: 1
 

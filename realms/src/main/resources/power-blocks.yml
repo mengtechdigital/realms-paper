@@ -3,21 +3,34 @@
 # are tracked (BlockPlaceEvent fires for player actions). Naturally
 # generated terrain doesn't count.
 #
-# Tune freely. /realm reload re-reads this file. Existing ledger counts are
-# preserved; only the value-per-block changes, so cached_power recomputes.
+# /realm reload re-reads this file. Existing ledger counts are preserved;
+# only the value-per-block changes, so cached_power recomputes.
+#
+# Default table is tuned for "the world is finite" servers — only blocks
+# that come from a *bounded* supply are listed. Renewables are omitted on
+# purpose:
+#   - iron / copper / gold / emerald: farmable (iron golems, drowned,
+#     piglin barters, villager trades) — power would inflate forever.
+#   - redstone / lapis blocks: witch farms / villager trades.
+#   - coal blocks: charcoal from logs is fully renewable.
+#   - respawn anchor: trivial to craft (crying obsidian + glowstone).
+# Add them back below if you want a more forgiving economy on your server.
 
 power-blocks:
+  # Truly unique — one per world
+  DRAGON_EGG: 200
+
+  # Endgame, requires Wither / Ancient Debris grinding
+  BEACON: 80
   NETHERITE_BLOCK: 50
-  BEACON: 100
-  CONDUIT: 40
-  DIAMOND_BLOCK: 10
-  EMERALD_BLOCK: 8
-  GOLD_BLOCK: 5
-  IRON_BLOCK: 3
-  COPPER_BLOCK: 2
-  COAL_BLOCK: 1
-  LAPIS_BLOCK: 2
-  REDSTONE_BLOCK: 1
-  AMETHYST_BLOCK: 4
-  RESPAWN_ANCHOR: 5
-  SHULKER_BOX: 3
+
+  # Late game, finite naturally
+  CONDUIT: 40            # 1 heart of the sea + 8 nautilus shells
+  DIAMOND_BLOCK: 4       # 9 diamonds — finite ore
+
+  # Mid-game finite loot
+  SHULKER_BOX: 3         # End city shulker shells
+  CRYING_OBSIDIAN: 2     # piglin barter only
+
+  # Geode finds — plentiful but finite
+  AMETHYST_BLOCK: 1
