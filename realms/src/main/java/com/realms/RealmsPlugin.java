@@ -9,7 +9,9 @@ import com.realms.integration.LuckPermsHook;
 import com.realms.display.BorderTitleListener;
 import com.realms.display.DisplayPrefsManager;
 import com.realms.display.DisplayQuitListener;
+import com.realms.display.GuiClickListener;
 import com.realms.display.Palette;
+import com.realms.display.PowerBlocksGui;
 import com.realms.display.ShowClaimManager;
 import com.realms.display.TerritoryDisplayTask;
 import com.realms.listener.ExplosionListener;
@@ -102,6 +104,7 @@ public final class RealmsPlugin extends JavaPlugin {
         this.showClaimManager = new ShowClaimManager(config, store, palette);
         this.territoryTask = new TerritoryDisplayTask(config, store, displayPrefs, palette);
         this.adminZoneManager = new AdminZoneManager(config, store, confirms);
+        PowerBlocksGui powerBlocksGui = new PowerBlocksGui(config);
 
         // Listeners
         getServer().getPluginManager().registerEvents(
@@ -124,6 +127,7 @@ public final class RealmsPlugin extends JavaPlugin {
         territoryTask.setBorderTitle(borderTitle);
         getServer().getPluginManager().registerEvents(
                 new DisplayQuitListener(territoryTask, showClaimManager), this);
+        getServer().getPluginManager().registerEvents(new GuiClickListener(), this);
         this.luckPermsHook = LuckPermsHook.attempt(this, config.luckPermsPrefixWeight());
         this.prefixUpdater = new PrefixUpdater(config, store, luckPermsHook);
         getServer().getPluginManager().registerEvents(prefixUpdater, this);
@@ -150,7 +154,7 @@ public final class RealmsPlugin extends JavaPlugin {
         RealmsCommand cmd = new RealmsCommand(this, config, store, nameCache,
                 realmManager, claimManager, powerCalc, diplomacyManager, overclaimManager,
                 adminBypass, homeManager, displayPrefs, showClaimManager, palette,
-                adminZoneManager);
+                adminZoneManager, powerBlocksGui);
         PluginCommand pc = getCommand("realm");
         if (pc != null) {
             pc.setExecutor(cmd);

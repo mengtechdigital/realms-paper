@@ -11,6 +11,7 @@ import com.realms.data.Resident;
 import com.realms.data.Role;
 import com.realms.display.DisplayPrefsManager;
 import com.realms.display.Palette;
+import com.realms.display.PowerBlocksGui;
 import com.realms.display.ShowClaimManager;
 import com.realms.manager.AdminBypass;
 import com.realms.manager.AdminZoneManager;
@@ -79,6 +80,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
     private final ShowClaimManager showClaim;
     private final Palette palette;
     private final AdminZoneManager adminZones;
+    private final PowerBlocksGui powerBlocksGui;
 
     /** Member-toggleable flags. peaceful is admin-only and lives elsewhere. */
     private static final List<String> MEMBER_FLAGS = Arrays.asList(
@@ -89,7 +91,8 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                          PowerCalc power, DiplomacyManager diplomacy, OverclaimManager overclaim,
                          AdminBypass adminBypass, HomeManager home,
                          DisplayPrefsManager displayPrefs, ShowClaimManager showClaim,
-                         Palette palette, AdminZoneManager adminZones) {
+                         Palette palette, AdminZoneManager adminZones,
+                         PowerBlocksGui powerBlocksGui) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
@@ -105,6 +108,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         this.showClaim = showClaim;
         this.palette = palette;
         this.adminZones = adminZones;
+        this.powerBlocksGui = powerBlocksGui;
     }
 
     @Override
@@ -120,12 +124,12 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "top", "leaderboard", "lb" -> { runTop(sender, args); return true; }
             case "reload" -> { return runReload(sender); }
             case "power" -> {
-                // /realm power blocks listing is console-friendly; the
-                // realm-specific breakdown still requires a Player.
+                // /realm power blocks: GUI for players, chat list for console.
                 if (args.length >= 2) {
                     String s = args[1].toLowerCase(Locale.ROOT);
                     if (s.equals("blocks") || s.equals("values") || s.equals("table")) {
-                        runPowerBlocks(sender);
+                        if (sender instanceof Player p) powerBlocksGui.open(p);
+                        else runPowerBlocks(sender);
                         return true;
                     }
                 }
