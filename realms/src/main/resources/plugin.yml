@@ -1,0 +1,25 @@
+name: Realms
+version: ${project.version}
+main: com.realms.RealmsPlugin
+api-version: '1.21'
+description: Towny-flavoured towns with Factions-flavoured land claims, raids, power growth, and diplomacy.
+author: Meng Tech LLC
+softdepend: [LuckPerms]
+
+commands:
+  realm:
+    description: Realms commands.
+    usage: /realm <create|claim|unclaim|invite|join|leave|kick|promote|demote|transfer|home|sethome|info|here|who|list|map|map|top|power|flag|ally|enemy|neutral|allies|enemies|relations|overclaim|disband|display|togglebar|showclaim|chat|reload>
+    aliases: [r, town]
+  realmchat:
+    description: Send a message to your realm members only.
+    usage: /realmchat <message>
+    aliases: [rc]
+
+permissions:
+  realms.use:
+    description: Allows using realm commands.
+    default: true
+  realms.admin:
+    description: Allows admin actions (peaceful toggle, force unclaim, bypass).
+    default: op

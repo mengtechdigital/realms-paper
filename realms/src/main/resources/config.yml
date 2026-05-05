@@ -1,0 +1,129 @@
+# Realms plugin configuration
+
+# Database file relative to the plugin data folder.
+database-file: "realms.db"
+
+# Realm name validation: case-insensitive uniqueness, alphanumeric + dash/underscore.
+realm-name:
+  min-length: 3
+  max-length: 16
+  reserved: [wilderness, admin, none, here, server]
+
+power:
+  # Base power any realm starts with (in chunks-of-capacity).
+  base: 30
+  # Power added per resident.
+  per-member-bonus: 20
+  # Power consumed per claimed chunk.
+  cost-per-chunk: 1
+
+claim:
+  # Maximum diameter for /realm claim N. Must be odd. Bigger claims get a confirm prompt.
+  max-diameter: 7
+  # Above this diameter, /realm claim N requires a "confirm" arg.
+  confirm-required-from-diameter: 5
+  # Confirm token expires after this many seconds.
+  confirm-expiry-seconds: 30
+
+raid:
+  # Whether raid/overclaim is enabled at all. Disable for purely peaceful servers.
+  enabled: true
+  # Newly created realms default to non-peaceful (raidable).
+  peaceful-default: false
+  # Seconds an enemy member must stand on a weakened chunk before /realm overclaim succeeds.
+  weakened-grace-seconds: 600
+  # Seconds between consecutive enemy declarations against the same realm
+  # (after going neutral). 3600 = 1 hour. Stops raid-spam toggling.
+  enemy-redeclare-cooldown-seconds: 3600
+
+# Inside-claim explosion behaviour. "vanilla" lets blocks break (and power-ledger
+# applies its delta); "cancel" stops block damage entirely (entities still take
+# explosion damage). Peaceful realms force "cancel" for ALL of these regardless.
+explosions:
+  tnt: vanilla
+  creeper: cancel
+  end-crystal: cancel
+  respawn-anchor: cancel
+  bed-in-nether-end: cancel
+  wither: cancel
+  ghast-fireball: cancel
+
+# Default per-realm flags applied at creation time.
+flag-defaults:
+  hostile-spawn: true
+  passive-spawn: true
+  mob-griefing: false
+  pvp: true             # forced false when peaceful=true
+
+# Diplomacy: ally /realm spawn access — default off (allies can use doors/buttons,
+# not teleport into your home). Flip if your community wants it permissive.
+ally-spawn-access: false
+
+# Prefix mode for chat / tab nameplate.
+#   chat-event       → prepend in AsyncPlayerChatEvent.setFormat (compositional with admin LP prefix)
+#   luckperms-meta   → transient PrefixNode at low weight (admin prefix wins %luckperms_prefix%)
+#   both             → both paths
+prefix-mode: chat-event
+prefix-weight-luckperms: 100  # only used when prefix-mode includes luckperms-meta
+
+# Chat / tab prefix format. Substitutions: {role} = Mayor/Assistant/Resident, {realm} = realm name.
+chat-prefix-format: "&7[&6{role} of {realm}&7] &r"
+tab-prefix-format:  "&6[{realm}] &r"
+
+# Realm-only chat (/realmchat, /rc).
+realm-chat:
+  enabled: true
+  format: "&7[&aRealm&7] &6{role} {name}: &f{message}"
+  # If true, members of allied realms also see the message (out of band).
+  allies-overhear: false
+
+# Display layer (border title, action bar, boss bar, see-claims particles).
+display:
+  border-title:
+    enabled: true
+    fade-in-ticks: 5
+    stay-ticks: 30
+    fade-out-ticks: 10
+    show-subtitle: true
+  action-bar:
+    enabled-default: true
+    refresh-ticks: 20
+    show-peaceful-tag: true
+    show-weakened-tag: true
+  boss-bar:
+    enabled-default: false
+    show-power-fill: true
+  sound:
+    enabled-default: false
+    enter-realm: "block.note_block.bell"
+    enter-wilderness: "block.note_block.harp"
+    volume: 0.5
+    pitch: 1.0
+  see-claims:
+    enabled: true
+    default-mode: line              # line | wall | corner
+    radius: 5
+    refresh-ticks: 20
+    max-concurrent-users: 50        # 0 = unlimited
+    tps-threshold: 18.0
+    line-y-offset: 0
+    wall-y-min-offset: -4
+    wall-y-max-offset: 8
+    sample-spacing: 1
+    persist-toggle: false
+
+# Color palette (legacy & codes). Used by titles, action bar, particles.
+colors:
+  wilderness: "&7"   # gray
+  own:        "&a"   # green
+  ally:       "&b"   # aqua
+  enemy:      "&c"   # red
+  neutral:    "&e"   # yellow
+  peaceful:   "&6"   # gold (overrides relation color when target is peaceful)
+
+# Home / spawn teleport tuning.
+home:
+  warmup-seconds: 3
+  cooldown-seconds: 60
+  cancel-on-move: true
+  cancel-on-damage: true

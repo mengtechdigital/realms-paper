@@ -1,0 +1,31 @@
+# --- Build output ---
+realms/target/
+realms/dependency-reduced-pom.xml
+build/
+files/
+
+# --- Local Maven install (download per machine, don't track) ---
+apache-maven-*/
+apache-maven-*-bin.zip
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Maven wrapper internal state (the wrapper itself IS tracked) ---
+.mvn/wrapper/maven-wrapper.jar
+
+# --- Logs / scratch ---
+*.log
+*.tmp

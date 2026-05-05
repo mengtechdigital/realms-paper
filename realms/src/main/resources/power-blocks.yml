@@ -1,0 +1,23 @@
+# Power-block value table. Material name → power points granted when placed
+# inside a claim, removed when broken/exploded. Only player-placed blocks
+# are tracked (BlockPlaceEvent fires for player actions). Naturally
+# generated terrain doesn't count.
+#
+# Tune freely. /realm reload re-reads this file. Existing ledger counts are
+# preserved; only the value-per-block changes, so cached_power recomputes.
+
+power-blocks:
+  NETHERITE_BLOCK: 50
+  BEACON: 100
+  CONDUIT: 40
+  DIAMOND_BLOCK: 10
+  EMERALD_BLOCK: 8
+  GOLD_BLOCK: 5
+  IRON_BLOCK: 3
+  COPPER_BLOCK: 2
+  COAL_BLOCK: 1
+  LAPIS_BLOCK: 2
+  REDSTONE_BLOCK: 1
+  AMETHYST_BLOCK: 4
+  RESPAWN_ANCHOR: 5
+  SHULKER_BOX: 3
