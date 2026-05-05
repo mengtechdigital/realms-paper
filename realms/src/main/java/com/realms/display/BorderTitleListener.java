@@ -86,7 +86,7 @@ public final class BorderTitleListener implements Listener {
         // Seed lastOwner so the first chunk-cross fires correctly. Don't
         // show a title on join — too noisy.
         Player p = event.getPlayer();
-        lastOwner.put(p.getUniqueId(), store.claimOwner(ClaimKey.of(p.getLocation())));
+        recordOwner(p.getUniqueId(), store.claimOwner(ClaimKey.of(p.getLocation())));
     }
 
     @EventHandler
@@ -109,11 +109,22 @@ public final class BorderTitleListener implements Listener {
         Long newOwner = store.claimOwner(here);
         Long oldOwner = lastOwner.get(p.getUniqueId());
         if (java.util.Objects.equals(newOwner, oldOwner)) return;
-        lastOwner.put(p.getUniqueId(), newOwner);
+        recordOwner(p.getUniqueId(), newOwner);
         if (!config.borderTitleEnabled()) return;
         if (!prefs.of(p).titleOn()) return;
         showTitle(p, newOwner);
         playSound(p, newOwner);
+    }
+
+    /**
+     * Update lastOwner without ever putting null into the map —
+     * ConcurrentHashMap rejects null values with NPE. We map "wilderness"
+     * (no owner) to "no entry"; lastOwner.get returns null in either case,
+     * which is exactly what every reader expects.
+     */
+    private void recordOwner(UUID uuid, Long owner) {
+        if (owner == null) lastOwner.remove(uuid);
+        else lastOwner.put(uuid, owner);
     }
 
     private void showTitle(Player p, Long ownerId) {
