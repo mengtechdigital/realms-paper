@@ -98,10 +98,13 @@ public final class SqliteRealmsStore implements RealmsStore {
             if (!parent.mkdirs()) plugin.getLogger().warning("Could not create data folder " + parent);
         }
         // Hint sqlite-jdbc where to extract its native lib so two plugins don't
-        // collide on the same temp file.
-        File nativeDir = new File(plugin.getDataFolder(), "native");
+        // collide on the same temp file. NOTE: org.sqlite.tmpdir is a JVM-global
+        // property — last write wins across plugins. Mirroring marriage-paper's
+        // choice keeps both plugins pointing at directories that DO exist; the
+        // native lib copy is idempotent.
+        File nativeDir = new File(plugin.getDataFolder(), ".native");
         if (!nativeDir.exists()) nativeDir.mkdirs();
-        System.setProperty("org.sqlite.lib.path", nativeDir.getAbsolutePath());
+        System.setProperty("org.sqlite.tmpdir", nativeDir.getAbsolutePath());
 
         // Direct Driver instantiation — DriverManager doesn't see classes
         // loaded by a plugin classloader.
@@ -130,13 +133,23 @@ public final class SqliteRealmsStore implements RealmsStore {
         this.writerThread.start();
     }
 
-    public void close() {
+    public synchronized void close() {
         running = false;
         if (writerThread != null) {
             writerThread.interrupt();
-            try { writerThread.join(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            // 5s gives the writer time to finish a batch on a loaded server.
+            try { writerThread.join(5000); }
+            catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            if (writerThread.isAlive()) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Realms writer thread did not exit within 5s — skipping final flush "
+                        + "to avoid concurrent connection use.");
+                try { if (writerConn != null) writerConn.close(); } catch (SQLException ignored) { }
+                return;
+            }
         }
-        // Drain anything still queued.
+        // Writer thread is confirmed dead. Drain anything still queued through the
+        // same synchronized applyBatch path — safe because nothing else uses writerConn.
         flushQueueOnce();
         try { if (writerConn != null) writerConn.close(); }
         catch (SQLException e) { plugin.getLogger().log(Level.WARNING, "Error closing realms DB", e); }
@@ -322,42 +335,56 @@ public final class SqliteRealmsStore implements RealmsStore {
     // ----------------------------------------------------------------------
 
     private void writerLoop() {
-        List<WriteOp> batch = new ArrayList<>(BATCH_MAX);
-        while (running || !queue.isEmpty()) {
+        while (running) {
             try {
                 WriteOp first = queue.poll(POLL_MS, TimeUnit.MILLISECONDS);
                 if (first == null) continue;
-                batch.add(first);
-                queue.drainTo(batch, BATCH_MAX - 1);
-                applyBatch(batch);
-                batch.clear();
+                applyBatch(first);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.SEVERE, "Realms DB write failed", e);
-                batch.clear();
+                break;
+            } catch (Throwable t) {
+                plugin.getLogger().log(Level.SEVERE,
+                        "Unhandled exception in Realms DB writer — continuing", t);
             }
         }
+        // After the running flag flips OR we were interrupted, drain whatever's
+        // still queued. Goes through the same synchronized applyBatch path.
+        flushQueueOnce();
     }
 
     private void flushQueueOnce() {
-        List<WriteOp> batch = new ArrayList<>();
-        queue.drainTo(batch);
-        if (batch.isEmpty()) return;
-        try { applyBatch(batch); }
-        catch (SQLException e) { plugin.getLogger().log(Level.SEVERE, "Realms DB final flush failed", e); }
+        WriteOp op = queue.poll();
+        while (op != null) {
+            applyBatch(op);
+            op = queue.poll();
+        }
     }
 
-    private void applyBatch(List<WriteOp> ops) throws SQLException {
-        writerConn.setAutoCommit(false);
+    /**
+     * Synchronized on {@code this} — ALL writerConn use must go through here so
+     * the writer thread, {@link #createRealm} (which does a sync INSERT for the
+     * generated id), and {@link #close}'s final drain serialize through one
+     * monitor. SQLite JDBC connections are not thread-safe.
+     */
+    private synchronized void applyBatch(WriteOp first) {
+        if (first == null) return;
+        List<WriteOp> batch = new ArrayList<>(BATCH_MAX);
+        batch.add(first);
+        queue.drainTo(batch, BATCH_MAX - 1);
+
+        boolean prev = true;
         try {
-            for (WriteOp op : ops) applyOp(op);
+            prev = writerConn.getAutoCommit();
+            writerConn.setAutoCommit(false);
+            for (WriteOp op : batch) applyOp(op);
             writerConn.commit();
-        } catch (SQLException e) {
+        } catch (SQLException ex) {
             try { writerConn.rollback(); } catch (SQLException ignored) {}
-            throw e;
+            plugin.getLogger().log(Level.SEVERE,
+                    "Realms DB batch failed (" + batch.size() + " ops) — rolled back", ex);
         } finally {
-            writerConn.setAutoCommit(true);
+            try { writerConn.setAutoCommit(prev); } catch (SQLException ignored) {}
         }
     }
 
@@ -429,8 +456,13 @@ public final class SqliteRealmsStore implements RealmsStore {
                 ps.executeUpdate();
             }
         } else if (op instanceof WriteOp.DeltaPower d) {
+            // MAX(0, ?) on the INSERT path: a negative delta against a
+            // missing row would otherwise persist a negative count, which
+            // (if it survives a crash before the sweep) loads back as
+            // negative power on next boot.
             try (PreparedStatement ps = writerConn.prepareStatement("""
-                    INSERT INTO power_ledger(world, chunk_x, chunk_z, material, count) VALUES (?,?,?,?,?)
+                    INSERT INTO power_ledger(world, chunk_x, chunk_z, material, count)
+                    VALUES (?,?,?,?, MAX(0, ?))
                     ON CONFLICT(world, chunk_x, chunk_z, material) DO UPDATE SET
                         count=MAX(0, count + excluded.count)""")) {
                 ps.setString(1, d.key().world()); ps.setInt(2, d.key().chunkX()); ps.setInt(3, d.key().chunkZ());
@@ -439,8 +471,9 @@ public final class SqliteRealmsStore implements RealmsStore {
             }
             // Sweep zero-count rows to keep the table tidy.
             try (PreparedStatement ps = writerConn.prepareStatement(
-                    "DELETE FROM power_ledger WHERE world=? AND chunk_x=? AND chunk_z=? AND count<=0")) {
+                    "DELETE FROM power_ledger WHERE world=? AND chunk_x=? AND chunk_z=? AND material=? AND count<=0")) {
                 ps.setString(1, d.key().world()); ps.setInt(2, d.key().chunkX()); ps.setInt(3, d.key().chunkZ());
+                ps.setString(4, d.material());
                 ps.executeUpdate();
             }
         } else if (op instanceof WriteOp.ClearLedger c) {
@@ -543,10 +576,16 @@ public final class SqliteRealmsStore implements RealmsStore {
 
     @Override
     public void updateRealm(Realm realm) {
-        realmsById.put(realm.id(), realm);
-        // realm name change → keep name index consistent
-        realmIdByNameLower.entrySet().removeIf(e -> e.getValue().equals(realm.id()));
-        realmIdByNameLower.put(realm.name().toLowerCase(Locale.ROOT), realm.id());
+        Realm prev = realmsById.put(realm.id(), realm);
+        // Atomic rename: put new name first so getRealmByName never sees an
+        // empty mapping for the realm. Then remove the old key only if it
+        // actually changed.
+        String newKey = realm.name().toLowerCase(Locale.ROOT);
+        realmIdByNameLower.put(newKey, realm.id());
+        if (prev != null) {
+            String oldKey = prev.name().toLowerCase(Locale.ROOT);
+            if (!oldKey.equals(newKey)) realmIdByNameLower.remove(oldKey, realm.id());
+        }
         queue.add(new WriteOp.UpsertRealm(realm));
     }
 
@@ -576,6 +615,13 @@ public final class SqliteRealmsStore implements RealmsStore {
             if (oo != null) oo.remove(realmId);
         }
         cooldowns.remove(realmId);
+        // Other realms may have cooldowns whose target (b-side) was the deleted
+        // realm. The DB side is handled by ON DELETE CASCADE, but the in-memory
+        // map keys those entries by "<deletedId>:<kind>" under each other realm.
+        String prefix = realmId + ":";
+        for (Map<String, Long> m : cooldowns.values()) {
+            m.keySet().removeIf(k -> k.startsWith(prefix));
+        }
         queue.add(new WriteOp.DeleteRealm(realmId));
     }
 
