@@ -671,12 +671,16 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                 ClaimKey k = center.offset(dx, dz);
                 Long ownerId = store.claimOwner(k);
                 Palette.Relation rel = palette.relationFor(player, ownerId);
-                String glyph = (dx == 0 && dz == 0) ? "+" : ownerId == null ? "·" : glyphFor(rel);
+                // Wilderness uses '-' rather than '·' (middle dot) — the
+                // unicode dot renders ~4px wide in Minecraft's default font
+                // while letters are 6px, so wilderness rows compressed
+                // visually next to claimed-cell rows.
+                String glyph = (dx == 0 && dz == 0) ? "+" : ownerId == null ? "-" : glyphFor(rel);
                 row.append(palette.code(rel)).append(glyph);
             }
             sb.append("  ").append(Text.colorize(row.toString())).append('\n');
         }
-        sb.append(Text.colorize("&8  · wilderness   "
+        sb.append(Text.colorize("&8  - wilderness   "
                 + palette.code(Palette.Relation.OWN) + "O&8 own   "
                 + palette.code(Palette.Relation.ALLY) + "A&8 ally   "
                 + palette.code(Palette.Relation.ENEMY) + "E&8 enemy   "
@@ -696,7 +700,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case PEACEFUL   -> "P";
             case SAFEZONE   -> "S";
             case WARZONE    -> "W";
-            case WILDERNESS -> "·";
+            case WILDERNESS -> "-";
         };
     }
 
