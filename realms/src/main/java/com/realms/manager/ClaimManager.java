@@ -58,25 +58,37 @@ public final class ClaimManager {
 
         ClaimKey center = ClaimKey.of(player.getLocation());
         int r = (diameter - 1) / 2;
-        List<ClaimKey> area = new ArrayList<>(diameter * diameter);
+
+        // Walk the N×N area:
+        //   - wilderness  → queue for claim
+        //   - this realm  → skip silently (idempotent extension over an
+        //                    existing footprint just claims the new edge)
+        //   - other realm → atomic abort, name the conflict
+        List<ClaimKey> toClaim = new ArrayList<>(diameter * diameter);
+        int alreadyOwned = 0;
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
-                area.add(center.offset(dx, dz));
+                ClaimKey k = center.offset(dx, dz);
+                Long owner = store.claimOwner(k);
+                if (owner == null) {
+                    toClaim.add(k);
+                } else if (owner.longValue() == realm.id()) {
+                    alreadyOwned++;
+                } else {
+                    Realm other = store.getRealm(owner);
+                    return Result.fail("errors.not-wilderness",
+                            Map.of("realm", other == null ? "?" : other.name(),
+                                    "x", String.valueOf(k.chunkX()),
+                                    "z", String.valueOf(k.chunkZ())));
+                }
             }
         }
 
-        // Wilderness check — bail on first hit and name the conflicting realm.
-        for (ClaimKey k : area) {
-            Long owner = store.claimOwner(k);
-            if (owner != null) {
-                Realm other = store.getRealm(owner);
-                return Result.fail("errors.not-wilderness",
-                        Map.of("realm", other == null ? "?" : other.name(),
-                                "x", String.valueOf(k.chunkX()), "z", String.valueOf(k.chunkZ())));
-            }
+        if (toClaim.isEmpty()) {
+            return Result.fail("errors.chunk-already-yours");
         }
 
-        long cost = power.claimCost(area.size());
+        long cost = power.claimCost(toClaim.size());
         long currentCost = power.currentClaimCost(realm);
         long capacity = power.compute(realm);
         long spare = capacity - currentCost;
@@ -87,25 +99,26 @@ public final class ClaimManager {
             ));
         }
 
-        // Adjacency: skip when realm has no claims yet (only happens via
-        // post-disband regrowth or admin shenanigans — /realm create stakes
-        // its own first chunk so the typical first-claim case has 1 claim
-        // already).
+        // Adjacency: any chunk in toClaim must 4-neighbour an existing
+        // realm claim. Self-owned chunks inside the area count toward
+        // 'existing' automatically — touchesAny will see them.
         Set<ClaimKey> existing = new java.util.HashSet<>(store.claimsOf(realm.id()));
-        if (!existing.isEmpty() && !touchesAny(area, existing)) {
+        if (!existing.isEmpty() && !touchesAny(toClaim, existing)) {
             return Result.fail("errors.not-adjacent");
         }
 
         // Confirmation gate for big batches. Token is keyed by (diameter,
         // world, chunkX, chunkZ) so walking to a different chunk and
         // confirming there cannot accidentally claim the wrong area.
+        // Confirm prompt surfaces the actual NEW-chunk count, not the area
+        // size, so re-claims over an existing footprint don't ask twice.
         String confirmKey = "claim:" + diameter + ":" + center.world() + ":"
                 + center.chunkX() + ":" + center.chunkZ();
         if (diameter >= config.confirmFromDiameter()) {
             if (!confirm) {
                 confirms.arm(player.getUniqueId(), confirmKey);
                 return Result.fail("errors.confirm-required", Map.of(
-                        "n", String.valueOf(area.size()),
+                        "n", String.valueOf(toClaim.size()),
                         "cost", String.valueOf(cost),
                         "diameter", String.valueOf(diameter)
                 ));
@@ -116,13 +129,19 @@ public final class ClaimManager {
         }
 
         long now = Instant.now().toEpochMilli();
-        store.addClaims(realm.id(), area, now);
+        store.addClaims(realm.id(), toClaim, now);
         power.recompute(realm);
 
-        return Result.ok("info.claim-success", Map.of(
-                "n", String.valueOf(area.size()),
+        // Two success keys so the message reads cleanly when there's no
+        // skip count ('Claimed 9 chunks') vs when the player extended
+        // over their footprint ('Claimed 5 chunks (4 already yours)').
+        String successKey = alreadyOwned > 0
+                ? "info.claim-success-extended" : "info.claim-success";
+        return Result.ok(successKey, Map.of(
+                "n", String.valueOf(toClaim.size()),
                 "power", String.valueOf(currentCost + cost),
-                "capacity", String.valueOf(capacity)
+                "capacity", String.valueOf(capacity),
+                "skipped", String.valueOf(alreadyOwned)
         ));
     }
 

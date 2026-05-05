@@ -66,6 +66,7 @@ info:
   demoted: "&a{player} demoted to &e{role}&a."
   transferred: "&aMayor of &6{realm}&a is now &e{player}&a."
   claim-success: "&aClaimed &e{n}&a chunk(s). Power: &e{power}/{capacity}&a."
+  claim-success-extended: "&aClaimed &e{n}&a new chunk(s) (&e{skipped}&a already yours). Power: &e{power}/{capacity}&a."
   unclaim-success: "&aUnclaimed chunk at ({x}, {z})."
   unclaim-cleared-home: "&eRealm home was in that chunk and has been cleared. Use &6/realm sethome&e to set it again."
   flag-set: "&aFlag &e{flag}&a is now &e{value}&a."
