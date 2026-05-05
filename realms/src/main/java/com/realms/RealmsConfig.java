@@ -131,6 +131,11 @@ public final class RealmsConfig {
     public String chatPrefixFormat() { return config.getString("chat-prefix-format", "&7[&6{role} of {realm}&7] &r"); }
     public String tabPrefixFormat() { return config.getString("tab-prefix-format", "&6[{realm}] &r"); }
 
+    public String suffixMode() { return config.getString("suffix-mode", "off"); }
+    public int luckPermsSuffixWeight() { return config.getInt("suffix-weight-luckperms", 100); }
+    public String chatSuffixFormat() { return config.getString("chat-suffix-format", "&7 [&6{realm}&7]"); }
+    public String tabSuffixFormat() { return config.getString("tab-suffix-format", " &6[{realm}]"); }
+
     public boolean realmChatEnabled() { return config.getBoolean("realm-chat.enabled", true); }
     public String realmChatFormat() { return config.getString("realm-chat.format",
             "&7[&aRealm&7] &6{role} {name}: &f{message}"); }

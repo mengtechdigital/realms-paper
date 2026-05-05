@@ -6,6 +6,7 @@ import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
 import com.realms.integration.LuckPermsHook;
+import com.realms.integration.RealmsPapiExpansion;
 import com.realms.display.BorderTitleListener;
 import com.realms.display.DisplayPrefsManager;
 import com.realms.display.DisplayQuitListener;
@@ -128,7 +129,8 @@ public final class RealmsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new DisplayQuitListener(territoryTask, showClaimManager), this);
         getServer().getPluginManager().registerEvents(new GuiClickListener(), this);
-        this.luckPermsHook = LuckPermsHook.attempt(this, config.luckPermsPrefixWeight());
+        this.luckPermsHook = LuckPermsHook.attempt(this,
+                config.luckPermsPrefixWeight(), config.luckPermsSuffixWeight());
         this.prefixUpdater = new PrefixUpdater(config, store, luckPermsHook);
         getServer().getPluginManager().registerEvents(prefixUpdater, this);
         // Wire the manager → prefix-updater hook so role / realm transitions
@@ -136,6 +138,19 @@ public final class RealmsPlugin extends JavaPlugin {
         realmManager.setPrefixRefresh(prefixUpdater::refresh);
         // Apply prefixes to anyone already online (e.g. /reload mid-session).
         for (Player p : getServer().getOnlinePlayers()) prefixUpdater.refresh(p);
+
+        // Register PlaceholderAPI expansion so chat/tab plugins (TAB, etc.)
+        // can read realm membership directly via %realms_prefix% — sidesteps
+        // LuckPerms-PAPI element placeholders that don't see transient nodes.
+        // persist()=true means PAPI keeps the old instance across /reload, so
+        // unregister-first prevents the old expansion (holding a now-closed
+        // store reference) from servicing a request mid-cycle.
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            RealmsPapiExpansion expansion = new RealmsPapiExpansion(config, store);
+            if (expansion.isRegistered()) expansion.unregister();
+            expansion.register();
+            getLogger().info("PlaceholderAPI detected — registered %realms_*% placeholders.");
+        }
 
         // Periodic janitor + overclaim tick.
         getServer().getScheduler().runTaskTimer(this, () -> {

@@ -4,7 +4,7 @@ main: com.realms.RealmsPlugin
 api-version: '1.21'
 description: Towny-flavoured towns with Factions-flavoured land claims, raids, power growth, and diplomacy.
 author: Meng Tech LLC
-softdepend: [LuckPerms]
+softdepend: [LuckPerms, PlaceholderAPI]
 
 commands:
   realm:

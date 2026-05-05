@@ -18,13 +18,15 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Applies the realm chat / tab prefix using either the chat-event setFormat
- * path (default — composes with admin LP prefix already in the format),
- * the LuckPerms transient-node path (for chat plugins that template both
- * weights), or both. Mode comes from {@code prefix-mode} in config.
+ * Applies the realm chat / tab prefix and suffix using either the chat-event
+ * setFormat path (default — composes with admin LP meta already in the
+ * format), the LuckPerms transient-node path (for chat plugins that template
+ * both weights), or both. Modes come from {@code prefix-mode} and
+ * {@code suffix-mode} in config — set either to {@code off} to disable that side.
  *
- * Tab nameplate: setPlayerListName always runs as a best-effort prepend.
- * Chat plugins that override the tab list (TAB / Featherboard) ignore us.
+ * Tab nameplate: setPlayerListName always runs as a best-effort prefix prepend
+ * + suffix append. Chat plugins that override the tab list (TAB / Featherboard)
+ * ignore us and should read %realms_tab_prefix% / %realms_tab_suffix%.
  */
 public final class PrefixUpdater implements Listener {
 
@@ -39,18 +41,25 @@ public final class PrefixUpdater implements Listener {
         this.luckPerms = luckPerms;
     }
 
-    /** Recompute and re-apply the player's tab prefix and (if enabled) LP transient prefix. */
+    /** Recompute and re-apply the player's tab nameplate and (if enabled) LP transient meta. */
     public void refresh(Player player) {
-        String tab = computeTabPrefix(player);
-        if (tab == null) {
-            player.setPlayerListName(player.getName());
-        } else {
-            player.setPlayerListName(Text.colorize(tab) + player.getName());
-        }
-        if (luckPerms != null && lpModeEnabled()) {
-            String chat = computeChatPrefix(player);
-            if (chat == null) luckPerms.clear(player);
-            else luckPerms.apply(player, Text.colorize(chat));
+        String tabPrefix = computeTabPrefix(player);
+        String tabSuffix = computeTabSuffix(player);
+        String head = tabPrefix == null ? "" : Text.colorize(tabPrefix);
+        String tail = tabSuffix == null ? "" : Text.colorize(tabSuffix);
+        player.setPlayerListName(head + player.getName() + tail);
+
+        if (luckPerms != null) {
+            if (lpModeEnabled(config.prefixMode())) {
+                String chat = computeChatPrefix(player);
+                if (chat == null) luckPerms.clearPrefix(player);
+                else luckPerms.applyPrefix(player, Text.colorize(chat));
+            }
+            if (lpModeEnabled(config.suffixMode())) {
+                String chat = computeChatSuffix(player);
+                if (chat == null) luckPerms.clearSuffix(player);
+                else luckPerms.applySuffix(player, Text.colorize(chat));
+            }
         }
     }
 
@@ -67,46 +76,55 @@ public final class PrefixUpdater implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        if (luckPerms != null) luckPerms.clear(event.getPlayer());
+        if (luckPerms != null) luckPerms.clearAll(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
-        if (!chatEventModeEnabled()) return;
-        String prefix = computeChatPrefix(event.getPlayer());
-        if (prefix == null) return;
-        // Prepend onto the existing format so chat-plugin / admin LP prefix
-        // already in the format string still surfaces.
-        event.setFormat(Text.colorize(prefix) + event.getFormat());
+        String prefix = chatEventModeEnabled(config.prefixMode()) ? computeChatPrefix(event.getPlayer()) : null;
+        String suffix = chatEventModeEnabled(config.suffixMode()) ? computeChatSuffix(event.getPlayer()) : null;
+        if (prefix == null && suffix == null) return;
+        String head = prefix == null ? "" : Text.colorize(prefix);
+        String tail = suffix == null ? "" : Text.colorize(suffix);
+        // Prepend prefix / append suffix onto the existing format so chat-plugin
+        // / admin LP meta already in the format string still surfaces.
+        event.setFormat(head + event.getFormat() + tail);
     }
 
-    private boolean chatEventModeEnabled() {
-        String mode = config.prefixMode().toLowerCase(Locale.ROOT);
-        return mode.equals("chat-event") || mode.equals("both");
+    private static boolean chatEventModeEnabled(String mode) {
+        String m = mode.toLowerCase(Locale.ROOT);
+        return m.equals("chat-event") || m.equals("both");
     }
 
-    private boolean lpModeEnabled() {
-        String mode = config.prefixMode().toLowerCase(Locale.ROOT);
-        return mode.equals("luckperms-meta") || mode.equals("both");
+    private static boolean lpModeEnabled(String mode) {
+        String m = mode.toLowerCase(Locale.ROOT);
+        return m.equals("luckperms-meta") || m.equals("both");
     }
 
     private String computeTabPrefix(Player player) {
-        Resident me = store.getResident(player.getUniqueId());
-        if (me == null) return null;
-        Realm realm = store.getRealm(me.realmId());
-        if (realm == null) return null;
-        return Text.render(config.tabPrefixFormat(), Map.of(
-                "realm", realm.name(),
-                "role",  roleLabel(me)
-        ));
+        return renderForPlayer(player, config.tabPrefixFormat(), config.prefixMode());
+    }
+
+    private String computeTabSuffix(Player player) {
+        return renderForPlayer(player, config.tabSuffixFormat(), config.suffixMode());
     }
 
     private String computeChatPrefix(Player player) {
+        return renderForPlayer(player, config.chatPrefixFormat(), config.prefixMode());
+    }
+
+    private String computeChatSuffix(Player player) {
+        return renderForPlayer(player, config.chatSuffixFormat(), config.suffixMode());
+    }
+
+    /** Render a format string for the player's realm/role, or null if disabled / not in a realm. */
+    private String renderForPlayer(Player player, String format, String mode) {
+        if (mode.toLowerCase(Locale.ROOT).equals("off")) return null;
         Resident me = store.getResident(player.getUniqueId());
         if (me == null) return null;
         Realm realm = store.getRealm(me.realmId());
         if (realm == null) return null;
-        return Text.render(config.chatPrefixFormat(), Map.of(
+        return Text.render(format, Map.of(
                 "realm", realm.name(),
                 "role",  roleLabel(me)
         ));
