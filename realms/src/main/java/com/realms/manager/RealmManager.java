@@ -36,6 +36,8 @@ public final class RealmManager {
     private final ConfirmStore confirms;
     private final PowerCalc power;
     private final AllyProposalStore allyProposals;
+    /** Set after construction — phase 9 prefix updater wiring. */
+    private java.util.function.Consumer<Player> prefixRefresh = p -> {};
 
     public RealmManager(RealmsConfig config, RealmsStore store, NameCache nameCache,
                         InviteStore invites, ConfirmStore confirms, PowerCalc power,
@@ -47,6 +49,11 @@ public final class RealmManager {
         this.confirms = confirms;
         this.power = power;
         this.allyProposals = allyProposals;
+    }
+
+    /** Phase-9 hook so role / realm changes refresh chat & tab prefixes. */
+    public void setPrefixRefresh(java.util.function.Consumer<Player> refresh) {
+        this.prefixRefresh = refresh == null ? p -> {} : refresh;
     }
 
     // ---- Realm lifecycle --------------------------------------------------
@@ -92,6 +99,7 @@ public final class RealmManager {
         power.recompute(withHome);
 
         nameCache.remember(founder);
+        prefixRefresh.accept(founder);
         return Result.ok("info.realm-created", Map.of(
                 "realm", name,
                 "player", founder.getName()
@@ -112,13 +120,16 @@ public final class RealmManager {
         }
         Realm r = store.getRealm(me.realmId());
         long realmId = me.realmId();
+        // Snapshot residents so we can refresh their prefixes after delete.
+        java.util.List<UUID> formerMembers = new java.util.ArrayList<>();
+        for (Resident res : store.residentsOf(realmId)) formerMembers.add(res.uuid());
         store.deleteRealm(realmId);
-        // Drop any pending invites or ally proposals pointing at the
-        // now-deleted realm so the in-memory maps stay tidy. Join /
-        // ally would fail anyway via realm-not-found, but this keeps
-        // those stores from growing unbounded.
         invites.clearForRealm(realmId);
         allyProposals.clearForRealm(realmId);
+        for (UUID id : formerMembers) {
+            Player online = Bukkit.getPlayer(id);
+            if (online != null) prefixRefresh.accept(online);
+        }
         return Result.ok("info.realm-disbanded",
                 Map.of("realm", r == null ? "?" : r.name()));
     }
@@ -159,6 +170,7 @@ public final class RealmManager {
         store.upsertResident(new Resident(joiner.getUniqueId(), realm.id(), Role.RESIDENT, now));
         invites.clear(joiner.getUniqueId());
         nameCache.remember(joiner);
+        prefixRefresh.accept(joiner);
         // Member count change → power capacity changes.
         power.recompute(realm);
         return Result.ok("info.joined", Map.of("realm", realm.name()));
@@ -173,6 +185,7 @@ public final class RealmManager {
         Realm realm = store.getRealm(me.realmId());
         store.removeResident(leaver.getUniqueId());
         if (realm != null) power.recompute(realm);
+        prefixRefresh.accept(leaver);
         return Result.ok("info.left");
     }
 
@@ -204,6 +217,7 @@ public final class RealmManager {
             onlineTarget.sendMessage(Text.render(
                     config.message("info.kicked-target", "&cYou were kicked from &6{realm}&c."),
                     Map.of("realm", realm == null ? "?" : realm.name())));
+            prefixRefresh.accept(onlineTarget);
         }
         return Result.ok("info.kicked",
                 Map.of("player", nameCache.getOr(targetId, targetName)));
@@ -230,6 +244,8 @@ public final class RealmManager {
         }
         if (target.role() == Role.MAYOR) return Result.fail("errors.cannot-target-mayor");
         store.upsertResident(target.withRole(newRole));
+        Player onlineTarget = Bukkit.getPlayer(targetId);
+        if (onlineTarget != null) prefixRefresh.accept(onlineTarget);
         return Result.ok(successKey, Map.of(
                 "player", nameCache.getOr(targetId, targetName),
                 "role", newRole.name().toLowerCase(Locale.ROOT)
@@ -253,6 +269,9 @@ public final class RealmManager {
         store.upsertResident(me.withRole(Role.ASSISTANT));
         store.upsertResident(target.withRole(Role.MAYOR));
         Realm realm = store.getRealm(me.realmId());
+        prefixRefresh.accept(mayor);
+        Player onlineTarget = Bukkit.getPlayer(targetId);
+        if (onlineTarget != null) prefixRefresh.accept(onlineTarget);
         return Result.ok("info.transferred", Map.of(
                 "player", nameCache.getOr(targetId, targetName),
                 "realm", realm == null ? "?" : realm.name()

@@ -1,9 +1,11 @@
 package com.realms;
 
+import com.realms.command.RealmChatCommand;
 import com.realms.command.RealmsCommand;
 import com.realms.data.NameCache;
 import com.realms.data.RealmsStore;
 import com.realms.data.SqliteRealmsStore;
+import com.realms.integration.LuckPermsHook;
 import com.realms.display.BorderTitleListener;
 import com.realms.display.DisplayPrefsManager;
 import com.realms.display.DisplayQuitListener;
@@ -14,6 +16,7 @@ import com.realms.listener.ExplosionListener;
 import com.realms.listener.MobListener;
 import com.realms.listener.OverclaimQuitListener;
 import com.realms.listener.PowerLedgerListener;
+import com.realms.listener.PrefixUpdater;
 import com.realms.listener.ProtectionListener;
 import com.realms.manager.AdminBypass;
 import com.realms.manager.AllyProposalStore;
@@ -56,6 +59,8 @@ public final class RealmsPlugin extends JavaPlugin {
     private Palette palette;
     private ShowClaimManager showClaimManager;
     private TerritoryDisplayTask territoryTask;
+    private LuckPermsHook luckPermsHook;
+    private PrefixUpdater prefixUpdater;
 
     @Override
     public void onEnable() {
@@ -111,6 +116,14 @@ public final class RealmsPlugin extends JavaPlugin {
                 new BorderTitleListener(config, store, nameCache, displayPrefs, palette), this);
         getServer().getPluginManager().registerEvents(
                 new DisplayQuitListener(territoryTask, showClaimManager), this);
+        this.luckPermsHook = LuckPermsHook.attempt(this, config.luckPermsPrefixWeight());
+        this.prefixUpdater = new PrefixUpdater(config, store, luckPermsHook);
+        getServer().getPluginManager().registerEvents(prefixUpdater, this);
+        // Wire the manager → prefix-updater hook so role / realm transitions
+        // update chat & tab prefixes without needing a relog.
+        realmManager.setPrefixRefresh(prefixUpdater::refresh);
+        // Apply prefixes to anyone already online (e.g. /reload mid-session).
+        for (Player p : getServer().getOnlinePlayers()) prefixUpdater.refresh(p);
 
         // Periodic janitor + overclaim tick.
         getServer().getScheduler().runTaskTimer(this, () -> {
@@ -134,9 +147,14 @@ public final class RealmsPlugin extends JavaPlugin {
             pc.setExecutor(cmd);
             pc.setTabCompleter(cmd);
         }
+        PluginCommand rc = getCommand("realmchat");
+        if (rc != null) rc.setExecutor(new RealmChatCommand(config, store, diplomacyManager));
 
-        getLogger().info("Realms enabled (phase 6 — diplomacy + overclaim).");
+        getLogger().info("Realms enabled.");
     }
+
+    /** Hooks the prefix updater so managers can refresh after realm changes. */
+    public PrefixUpdater getPrefixUpdater() { return prefixUpdater; }
 
     @Override
     public void onDisable() {

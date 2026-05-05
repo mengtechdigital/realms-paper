@@ -8,9 +8,17 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Persistence interface for the Realms plugin. All read methods are O(1)
- * against the in-memory hot maps and safe to call from the main thread.
- * Writes are durable (queued to the async writer thread, flushed on close).
+ * Persistence interface for the Realms plugin. Read methods are O(1)
+ * against the in-memory hot maps. Writes are durable — queued to the async
+ * writer thread and flushed on close.
+ *
+ * Threading: hot-map mutations happen on the main thread. Reads are
+ * thread-safe at the per-call level (ConcurrentHashMap), but composing
+ * multiple reads (e.g. {@code getResident} → {@code getRealm}) without a
+ * lock can observe an in-progress {@link #deleteRealm} cascade. Async
+ * callers (e.g. {@code AsyncPlayerChatEvent} handlers) should always
+ * null-guard each step and accept that a torn read returns null, not
+ * partial state — the rest of the plugin is built around that contract.
  */
 public interface RealmsStore {
 
