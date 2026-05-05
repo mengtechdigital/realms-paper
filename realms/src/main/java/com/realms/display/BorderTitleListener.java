@@ -6,10 +6,6 @@ import com.realms.data.NameCache;
 import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.manager.Text;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.title.Title;
-import net.kyori.adventure.title.Title.Times;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -21,7 +17,6 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.Location;
 
-import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,40 +119,41 @@ public final class BorderTitleListener implements Listener {
     private void showTitle(Player p, Long ownerId) {
         Palette.Relation rel = palette.relationFor(p, ownerId);
         Realm realm = ownerId == null ? null : store.getRealm(ownerId);
-        String prefix = palette.code(rel);
-        String mainPart = realm == null
-                ? config.message("info.display-title-wilderness", "&7Wilderness")
-                : prefix + realm.name();
+        String mainRaw = realm == null
+                ? "&7Entering " + config.message("info.display-title-wilderness", "&7Wilderness")
+                : "&7Entering " + palette.code(rel) + realm.name();
         String subRaw = "";
-        if (config.borderTitleSubtitle()) {
-            if (realm != null) {
-                if (realm.isAdminZone()) {
-                    // Admin zones don't have a mayor / chunk economy in any
-                    // meaningful sense — show the zone type and chunk count.
-                    subRaw = "[" + realm.zoneType().name().toLowerCase(java.util.Locale.ROOT)
-                            + "] " + store.claimCount(realm.id()) + " chunks";
-                } else if (realm.peaceful()) {
-                    subRaw = config.message("info.display-subtitle-peaceful", "[Peaceful]");
-                } else if (palette.isWeakened(realm)) {
-                    subRaw = config.message("info.display-subtitle-weakened", "[Weakened]");
-                } else {
-                    subRaw = Text.render(config.message("info.display-subtitle-mayor",
-                            "Mayor: {player} · {chunks} chunks"),
-                            Map.of(
-                                    "player", names.getOr(realm.founder(), "?"),
-                                    "chunks", String.valueOf(store.claimCount(realm.id()))
-                            ));
-                }
+        if (config.borderTitleSubtitle() && realm != null) {
+            if (realm.isAdminZone()) {
+                subRaw = "&8[" + realm.zoneType().name().toLowerCase(java.util.Locale.ROOT)
+                        + "]&7 · " + store.claimCount(realm.id()) + " chunks";
+            } else if (realm.peaceful()) {
+                subRaw = config.message("info.display-subtitle-peaceful", "&6[Peaceful]");
+            } else if (palette.isWeakened(realm)) {
+                subRaw = config.message("info.display-subtitle-weakened", "&c[Weakened]");
+            } else {
+                subRaw = Text.render(config.message("info.display-subtitle-mayor",
+                        "&7Mayor: {player} · {chunks} chunks"),
+                        Map.of(
+                                "player", names.getOr(realm.founder(), "?"),
+                                "chunks", String.valueOf(store.claimCount(realm.id()))
+                        ));
             }
         }
-        Component main = Component.text(Text.stripColor("Entering ")).color(NamedTextColor.GRAY)
-                .append(legacyComponent(mainPart));
-        Component sub = subRaw.isEmpty() ? Component.empty() : legacyComponent(subRaw);
-        Times times = Times.times(
-                Duration.ofMillis(config.borderTitleFadeIn()  * 50L),
-                Duration.ofMillis(config.borderTitleStay()    * 50L),
-                Duration.ofMillis(config.borderTitleFadeOut() * 50L));
-        p.showTitle(Title.title(main, sub, times));
+        sendLegacyTitle(p, Text.colorize(mainRaw), Text.colorize(subRaw));
+    }
+
+    /**
+     * Player#sendTitle is deprecated but reliable across Paper builds.
+     * The Adventure showTitle path rendered only the first title per
+     * session in some configurations — legacy fires every call.
+     */
+    @SuppressWarnings("deprecation")
+    private void sendLegacyTitle(Player p, String main, String sub) {
+        p.sendTitle(main, sub,
+                config.borderTitleFadeIn(),
+                config.borderTitleStay(),
+                config.borderTitleFadeOut());
     }
 
     private void playSound(Player p, Long ownerId) {
@@ -175,9 +171,4 @@ public final class BorderTitleListener implements Listener {
         }
     }
 
-    /** Re-use Bukkit's legacy color codes via Adventure's legacy serializer. */
-    private static Component legacyComponent(String legacy) {
-        return net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
-                .legacyAmpersand().deserialize(legacy);
-    }
 }
