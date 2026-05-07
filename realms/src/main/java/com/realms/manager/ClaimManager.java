@@ -170,6 +170,21 @@ public final class ClaimManager {
             store.updateRealm(realm.withHome(null));
             clearedHome = true;
         }
+        // Same clean-up for additional named homes — any named home whose
+        // coords land in the unclaimed chunk gets dropped so /realm home
+        // <name> can't teleport players into wilderness.
+        int clearedNamed = 0;
+        for (var entry : new java.util.ArrayList<>(
+                store.namedHomes(realm.id()).entrySet())) {
+            com.realms.data.NamedHome h = entry.getValue();
+            if (!here.world().equals(h.world())) continue;
+            int hx = ((int) Math.floor(h.x())) >> 4;
+            int hz = ((int) Math.floor(h.z())) >> 4;
+            if (hx == here.chunkX() && hz == here.chunkZ()) {
+                store.removeNamedHome(realm.id(), entry.getKey());
+                clearedNamed++;
+            }
+        }
 
         // Deduct power-ledger value before drop — cached_power will recompute.
         Map<Material, Integer> wiped = store.ledgerCounts(here);
@@ -183,6 +198,7 @@ public final class ClaimManager {
         ph.put("z", String.valueOf(here.chunkZ()));
         ph.put("wiped", String.valueOf(wiped.size()));
         ph.put("home-cleared", clearedHome ? "1" : "0");
+        ph.put("named-cleared", String.valueOf(clearedNamed));
         return Result.ok("info.unclaim-success", ph);
     }
 

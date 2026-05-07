@@ -4,6 +4,7 @@ import com.realms.RealmsConfig;
 import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
+import com.realms.manager.RealmTitles;
 import com.realms.manager.Text;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -46,9 +47,10 @@ public final class RealmsPapiExpansion extends PlaceholderExpansion {
         Realm realm = store.getRealm(me.realmId());
         if (realm == null) return "";
 
+        String roleTitle = RealmTitles.label(store, realm.id(), me.role());
         Map<String, String> subs = Map.of(
                 "realm", realm.name(),
-                "role",  roleLabel(me));
+                "role",  roleTitle);
 
         return switch (params.toLowerCase()) {
             case "prefix"     -> Text.colorize(Text.render(config.chatPrefixFormat(), subs));
@@ -56,16 +58,8 @@ public final class RealmsPapiExpansion extends PlaceholderExpansion {
             case "suffix"     -> Text.colorize(Text.render(config.chatSuffixFormat(), subs));
             case "tab_suffix" -> Text.colorize(Text.render(config.tabSuffixFormat(), subs));
             case "realm"      -> realm.name();
-            case "role"       -> roleLabel(me);
+            case "role"       -> roleTitle;
             default           -> null;
-        };
-    }
-
-    private static String roleLabel(Resident r) {
-        return switch (r.role()) {
-            case MAYOR -> "Mayor";
-            case ASSISTANT -> "Assistant";
-            case RESIDENT -> "Resident";
         };
     }
 }

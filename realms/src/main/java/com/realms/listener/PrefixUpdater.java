@@ -5,6 +5,7 @@ import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import com.realms.integration.LuckPermsHook;
+import com.realms.manager.RealmTitles;
 import com.realms.manager.Text;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -126,15 +127,7 @@ public final class PrefixUpdater implements Listener {
         if (realm == null) return null;
         return Text.render(format, Map.of(
                 "realm", realm.name(),
-                "role",  roleLabel(me)
+                "role",  RealmTitles.label(store, realm.id(), me.role())
         ));
-    }
-
-    private static String roleLabel(Resident r) {
-        return switch (r.role()) {
-            case MAYOR -> "Mayor";
-            case ASSISTANT -> "Assistant";
-            case RESIDENT -> "Resident";
-        };
     }
 }

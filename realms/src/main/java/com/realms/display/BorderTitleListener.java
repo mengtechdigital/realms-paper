@@ -5,6 +5,8 @@ import com.realms.data.ClaimKey;
 import com.realms.data.NameCache;
 import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
+import com.realms.data.Resident;
+import com.realms.data.Role;
 import com.realms.manager.Text;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -143,15 +145,37 @@ public final class BorderTitleListener implements Listener {
             } else if (palette.isWeakened(realm)) {
                 subRaw = config.message("info.display-subtitle-weakened", "&c[Weakened]");
             } else {
+                // Look up the current mayor from residents — realm.founder()
+                // is intentionally never updated on /realm transfer, so it
+                // can name a player who is no longer a member (or whose
+                // UUID has dropped out of the live name cache, producing
+                // the "Mayor: ?" bug). The name lookup falls back to
+                // Bukkit's offline-player cache for stale UUIDs.
+                String mayorName = currentMayorName(realm);
                 subRaw = Text.render(config.message("info.display-subtitle-mayor",
                         "&7Mayor: {player} · {chunks} chunks"),
                         Map.of(
-                                "player", names.getOr(realm.founder(), "?"),
+                                "player", mayorName,
                                 "chunks", String.valueOf(store.claimCount(realm.id()))
                         ));
             }
         }
         sendLegacyTitle(p, Text.colorize(mainRaw), Text.colorize(subRaw));
+    }
+
+    /**
+     * Walk residents to find the current mayor. Falls back to the founder
+     * UUID and finally to "?" — but the founder fallback is also routed
+     * through {@link NameCache#getOrLookup} so a stale uncached founder
+     * still resolves via Bukkit's offline-player cache.
+     */
+    private String currentMayorName(Realm realm) {
+        for (Resident r : store.residentsOf(realm.id())) {
+            if (r.role() == Role.MAYOR) {
+                return names.getOrLookup(r.uuid(), "?");
+            }
+        }
+        return names.getOrLookup(realm.founder(), "?");
     }
 
     /**

@@ -67,6 +67,12 @@ flag-defaults:
 # not teleport into your home). Flip if your community wants it permissive.
 ally-spawn-access: false
 
+# When true, allies are treated like members for non-destructive interactions
+# inside each other's claims: opening containers (chests, hoppers), using
+# workstations (furnaces, anvils), and interacting with entities (item frames,
+# armor stands, villagers). Build / break is still strictly members-only.
+ally-interact: true
+
 # Prefix / suffix mode for chat / tab nameplate.
 #   off              → don't apply this side at all
 #   chat-event       → prepend/append in AsyncPlayerChatEvent.setFormat (compositional with admin LP meta)
@@ -142,3 +148,12 @@ home:
   cooldown-seconds: 60
   cancel-on-move: true
   cancel-on-damage: true
+  # Each realm gets the default home for free; each additional named home
+  # costs this many cached_power to unlock. Default 50: a realm with 50
+  # power can /realm sethome <name1>; at 100 power they can add <name2>;
+  # etc. Existing named homes are NOT deleted when power drops back below
+  # threshold — they just stop adding new slots until power recovers.
+  # Set to 0 to disable named homes entirely (default home still works).
+  power-per-slot: 50
+  name-min-length: 1
+  name-max-length: 16

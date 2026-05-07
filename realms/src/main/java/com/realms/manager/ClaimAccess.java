@@ -15,14 +15,18 @@ import java.util.UUID;
  * Listeners ask "can this player do X here?" and get yes/no.
  *
  * Relation semantics:
- *   canBuild  — only members of the chunk's owning realm.
- *   canUseAsAlly — members OR allies (door/button/plate/bed access).
- *   canPvp    — wilderness vanilla; otherwise:
- *                 same realm: peaceful or pvp-flag-off → block;
- *                 ally relation: always blocked (peace);
- *                 enemy relation: always allowed UNLESS victim is in a
- *                                 peaceful realm (peaceful overrides);
- *                 neutral: chunk owner's pvp flag (peaceful blocks).
+ *   canBuild       — only members of the chunk's owning realm.
+ *   canUseAsAlly   — members OR allies (door / button / lever / plate / bed).
+ *   canOpenContainer — members; also allies when {@code ally-interact} is on.
+ *   canPvp         — wilderness vanilla; otherwise:
+ *                      peaceful-claim chunk: always blocked (everyone is
+ *                          immune inside that realm's land — peaceful is
+ *                          a sanctuary, not a personal aura);
+ *                      admin zone chunk: forced on/off by zone type;
+ *                      same realm: pvp-flag drives;
+ *                      ally relation: always blocked (peace);
+ *                      enemy relation: always allowed;
+ *                      neutral: chunk owner's pvp flag.
  */
 public final class ClaimAccess {
 
@@ -67,27 +71,36 @@ public final class ClaimAccess {
     }
 
     /**
-     * Container / workstation interaction — same authority as build for now;
-     * outsiders and allies are both blocked. Phase split exists so later
-     * tweaks (e.g. ally chest sharing as an opt-in flag) have a hook.
+     * Container / workstation interaction. Members always allowed; allies
+     * allowed when {@code ally-interact} is on (default true). Outsiders
+     * always blocked.
      */
     public boolean canOpenContainer(Player player, Location at) {
+        if (config.allyInteract()) return canUseAsAlly(player, at);
         return canBuild(player, at);
     }
+
+    /** Whether allies should be treated like members for entity interactions. */
+    public boolean allyInteractEnabled() { return config.allyInteract(); }
 
     public boolean canPvp(Player attacker, Player victim) {
         if (attacker == null || victim == null) return true;
         if (attacker.equals(victim)) return true;
 
-        // Chunk owner takes precedence for admin zones — safezone always
-        // blocks PvP, warzone always allows it, regardless of attacker /
-        // victim realm membership.
+        // Chunk-level overrides take precedence over relation rules.
+        // Peaceful realms are now claim-scoped: everyone inside their land
+        // is immune, but peaceful members fighting in arenas / wilderness /
+        // contested ground take damage normally. This unblocks peaceful
+        // players from PvP events while keeping their towns sanctuary.
         Long chunkOwnerId = store.claimOwner(ClaimKey.of(victim.getLocation()));
         if (chunkOwnerId != null) {
             Realm chunkRealm = store.getRealm(chunkOwnerId);
-            if (chunkRealm != null && chunkRealm.isAdminZone()) {
-                if (chunkRealm.zoneType().forcesPvpOff()) return false;
-                if (chunkRealm.zoneType().forcesPvpOn())  return true;
+            if (chunkRealm != null) {
+                if (chunkRealm.isAdminZone()) {
+                    if (chunkRealm.zoneType().forcesPvpOff()) return false;
+                    if (chunkRealm.zoneType().forcesPvpOn())  return true;
+                }
+                if (chunkRealm.peaceful()) return false;
             }
         }
 
@@ -96,15 +109,7 @@ public final class ClaimAccess {
         Long attackerRealm = attackerRes == null ? null : attackerRes.realmId();
         Long victimRealm   = victimRes == null ? null : victimRes.realmId();
 
-        // Peaceful-realm members are immune anywhere; that overrides enemy
-        // declarations (the design's "peaceful absorbs enemy declarations"
-        // rule).
-        if (victimRealm != null) {
-            Realm vr = store.getRealm(victimRealm);
-            if (vr != null && vr.peaceful()) return false;
-        }
-
-        // Same realm — peaceful covered above; pvp flag drives.
+        // Same realm — pvp flag drives.
         if (attackerRealm != null && attackerRealm.equals(victimRealm)) {
             return store.getFlag(attackerRealm, "pvp", true);
         }
@@ -116,12 +121,8 @@ public final class ClaimAccess {
         }
 
         // Neutral / one side has no realm — chunk owner's pvp flag rules.
-        Long ownerId = store.claimOwner(ClaimKey.of(victim.getLocation()));
-        if (ownerId == null) return true; // wilderness
-        Realm chunkRealm = store.getRealm(ownerId);
-        if (chunkRealm == null) return true;
-        if (chunkRealm.peaceful()) return false;
-        return store.getFlag(ownerId, "pvp", true);
+        if (chunkOwnerId == null) return true;
+        return store.getFlag(chunkOwnerId, "pvp", true);
     }
 
     private boolean isMemberOf(UUID player, long realmId) {

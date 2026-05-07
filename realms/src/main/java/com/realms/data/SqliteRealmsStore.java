@@ -63,6 +63,10 @@ public final class SqliteRealmsStore implements RealmsStore {
         record PutCooldown(long a, long b, String kind, long until) implements WriteOp { }
         record PurgeCooldowns(long cutoff) implements WriteOp { }
         record PutDisplayPrefs(UUID uuid, DisplayPrefs prefs) implements WriteOp { }
+        record PutNamedHome(long realmId, NamedHome home) implements WriteOp { }
+        record DeleteNamedHome(long realmId, String name) implements WriteOp { }
+        record SetTitle(long realmId, String role, String title) implements WriteOp { }
+        record ClearTitle(long realmId, String role) implements WriteOp { }
     }
 
     private final Plugin plugin;
@@ -81,6 +85,10 @@ public final class SqliteRealmsStore implements RealmsStore {
     private final Map<Long, Map<String, Long>> cooldowns = new ConcurrentHashMap<>(); // a -> "b:kind" -> until
     private final Map<ClaimKey, Map<String, Integer>> ledger = new ConcurrentHashMap<>();
     private final Map<UUID, DisplayPrefs> displayPrefs = new ConcurrentHashMap<>();
+    /** realm id → (lowercase home name → NamedHome). Default home stays in realms row. */
+    private final Map<Long, Map<String, NamedHome>> namedHomes = new ConcurrentHashMap<>();
+    /** realm id → (Role → display title). Missing entry == use plugin default. */
+    private final Map<Long, Map<Role, String>> roleTitles = new ConcurrentHashMap<>();
 
     private Connection writerConn;
     private final LinkedBlockingQueue<WriteOp> queue = new LinkedBlockingQueue<>();
@@ -232,6 +240,26 @@ public final class SqliteRealmsStore implements RealmsStore {
                     bar_mode TEXT NOT NULL DEFAULT 'ACTION',
                     sound_on INTEGER NOT NULL DEFAULT 0
                 )""");
+            st.execute("""
+                CREATE TABLE IF NOT EXISTS realm_homes (
+                    realm_id INTEGER NOT NULL REFERENCES realms(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    world TEXT NOT NULL,
+                    x REAL NOT NULL,
+                    y REAL NOT NULL,
+                    z REAL NOT NULL,
+                    yaw REAL NOT NULL,
+                    pitch REAL NOT NULL,
+                    PRIMARY KEY (realm_id, name)
+                )""");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_realm_homes_realm ON realm_homes(realm_id)");
+            st.execute("""
+                CREATE TABLE IF NOT EXISTS realm_titles (
+                    realm_id INTEGER NOT NULL REFERENCES realms(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    PRIMARY KEY (realm_id, role)
+                )""");
         }
         migrateAddZoneType(c);
     }
@@ -343,6 +371,29 @@ public final class SqliteRealmsStore implements RealmsStore {
                 try { mode = DisplayPrefs.BarMode.valueOf(rs.getString(3)); }
                 catch (IllegalArgumentException e) { mode = DisplayPrefs.BarMode.ACTION; }
                 displayPrefs.put(uuid, new DisplayPrefs(rs.getInt(2) != 0, mode, rs.getInt(4) != 0));
+            }
+        }
+        try (Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT realm_id, name, world, x, y, z, yaw, pitch FROM realm_homes")) {
+            while (rs.next()) {
+                long realmId = rs.getLong(1);
+                NamedHome home = new NamedHome(rs.getString(2), rs.getString(3),
+                        rs.getDouble(4), rs.getDouble(5), rs.getDouble(6),
+                        rs.getFloat(7), rs.getFloat(8));
+                namedHomes.computeIfAbsent(realmId, __ -> new ConcurrentHashMap<>())
+                        .put(home.name(), home);
+            }
+        }
+        try (Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("SELECT realm_id, role, title FROM realm_titles")) {
+            while (rs.next()) {
+                long realmId = rs.getLong(1);
+                Role role;
+                try { role = Role.valueOf(rs.getString(2)); }
+                catch (IllegalArgumentException e) { continue; }   // obsolete row
+                roleTitles.computeIfAbsent(realmId, __ -> new ConcurrentHashMap<>())
+                        .put(role, rs.getString(3));
             }
         }
     }
@@ -554,6 +605,40 @@ public final class SqliteRealmsStore implements RealmsStore {
                 ps.setInt(4, p.prefs().soundOn() ? 1 : 0);
                 ps.executeUpdate();
             }
+        } else if (op instanceof WriteOp.PutNamedHome n) {
+            NamedHome h = n.home();
+            try (PreparedStatement ps = writerConn.prepareStatement("""
+                    INSERT INTO realm_homes(realm_id, name, world, x, y, z, yaw, pitch)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(realm_id, name) DO UPDATE SET
+                        world=excluded.world, x=excluded.x, y=excluded.y, z=excluded.z,
+                        yaw=excluded.yaw, pitch=excluded.pitch""")) {
+                ps.setLong(1, n.realmId());
+                ps.setString(2, h.name());
+                ps.setString(3, h.world());
+                ps.setDouble(4, h.x()); ps.setDouble(5, h.y()); ps.setDouble(6, h.z());
+                ps.setFloat(7, h.yaw()); ps.setFloat(8, h.pitch());
+                ps.executeUpdate();
+            }
+        } else if (op instanceof WriteOp.DeleteNamedHome d) {
+            try (PreparedStatement ps = writerConn.prepareStatement(
+                    "DELETE FROM realm_homes WHERE realm_id=? AND name=?")) {
+                ps.setLong(1, d.realmId()); ps.setString(2, d.name());
+                ps.executeUpdate();
+            }
+        } else if (op instanceof WriteOp.SetTitle s) {
+            try (PreparedStatement ps = writerConn.prepareStatement("""
+                    INSERT INTO realm_titles(realm_id, role, title) VALUES (?,?,?)
+                    ON CONFLICT(realm_id, role) DO UPDATE SET title=excluded.title""")) {
+                ps.setLong(1, s.realmId()); ps.setString(2, s.role()); ps.setString(3, s.title());
+                ps.executeUpdate();
+            }
+        } else if (op instanceof WriteOp.ClearTitle c) {
+            try (PreparedStatement ps = writerConn.prepareStatement(
+                    "DELETE FROM realm_titles WHERE realm_id=? AND role=?")) {
+                ps.setLong(1, c.realmId()); ps.setString(2, c.role());
+                ps.executeUpdate();
+            }
         }
     }
 
@@ -654,6 +739,8 @@ public final class SqliteRealmsStore implements RealmsStore {
         for (Map<String, Long> m : cooldowns.values()) {
             m.keySet().removeIf(k -> k.startsWith(prefix));
         }
+        namedHomes.remove(realmId);
+        roleTitles.remove(realmId);
         queue.add(new WriteOp.DeleteRealm(realmId));
     }
 
@@ -893,5 +980,70 @@ public final class SqliteRealmsStore implements RealmsStore {
     public void putDisplayPrefs(UUID uuid, DisplayPrefs prefs) {
         displayPrefs.put(uuid, prefs);
         queue.add(new WriteOp.PutDisplayPrefs(uuid, prefs));
+    }
+
+    // ----------------------------------------------------------------------
+    // Named homes
+    // ----------------------------------------------------------------------
+
+    @Override
+    public void putNamedHome(long realmId, NamedHome home) {
+        namedHomes.computeIfAbsent(realmId, __ -> new ConcurrentHashMap<>())
+                .put(home.name(), home);
+        queue.add(new WriteOp.PutNamedHome(realmId, home));
+    }
+
+    @Override
+    public void removeNamedHome(long realmId, String name) {
+        Map<String, NamedHome> m = namedHomes.get(realmId);
+        if (m != null) m.remove(name);
+        queue.add(new WriteOp.DeleteNamedHome(realmId, name));
+    }
+
+    @Override
+    public NamedHome getNamedHome(long realmId, String name) {
+        Map<String, NamedHome> m = namedHomes.get(realmId);
+        return m == null ? null : m.get(name);
+    }
+
+    @Override
+    public Map<String, NamedHome> namedHomes(long realmId) {
+        Map<String, NamedHome> m = namedHomes.get(realmId);
+        return m == null ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<>(m));
+    }
+
+    @Override
+    public int namedHomeCount(long realmId) {
+        Map<String, NamedHome> m = namedHomes.get(realmId);
+        return m == null ? 0 : m.size();
+    }
+
+    // ----------------------------------------------------------------------
+    // Role titles
+    // ----------------------------------------------------------------------
+
+    @Override
+    public void setTitle(long realmId, Role role, String title) {
+        roleTitles.computeIfAbsent(realmId, __ -> new ConcurrentHashMap<>()).put(role, title);
+        queue.add(new WriteOp.SetTitle(realmId, role.name(), title));
+    }
+
+    @Override
+    public void clearTitle(long realmId, Role role) {
+        Map<Role, String> m = roleTitles.get(realmId);
+        if (m != null) m.remove(role);
+        queue.add(new WriteOp.ClearTitle(realmId, role.name()));
+    }
+
+    @Override
+    public String titleFor(long realmId, Role role) {
+        Map<Role, String> m = roleTitles.get(realmId);
+        return m == null ? null : m.get(role);
+    }
+
+    @Override
+    public Map<Role, String> titlesOf(long realmId) {
+        Map<Role, String> m = roleTitles.get(realmId);
+        return m == null ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<>(m));
     }
 }

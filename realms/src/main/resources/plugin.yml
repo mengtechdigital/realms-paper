@@ -9,7 +9,7 @@ softdepend: [LuckPerms, PlaceholderAPI]
 commands:
   realm:
     description: Realms commands.
-    usage: /realm <create|claim|unclaim|invite|join|leave|kick|promote|demote|transfer|home|sethome|info|here|who|list|map|map|top|power|flag|ally|enemy|neutral|allies|enemies|relations|overclaim|disband|display|togglebar|showclaim|chat|reload>
+    usage: /realm <create|claim|unclaim|invite|join|leave|kick|promote|demote|transfer|rename|title|home|sethome|delhome|homes|info|here|who|list|map|top|power|flag|ally|enemy|neutral|allies|enemies|relations|overclaim|disband|display|togglebar|showclaim|chat|reload>
     aliases: [r, town]
   realmchat:
     description: Send a message to your realm members only.

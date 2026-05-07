@@ -129,10 +129,14 @@ public final class ProtectionListener implements Listener {
                 return;
             }
         }
-        // Entity interaction = item frames, armor stands, villagers — treat
-        // as build-level (members only). Allies cannot loot frames or trade
-        // privately with locked villagers.
-        if (!access.canBuild(event.getPlayer(), target.getLocation())) {
+        // Entity interaction = item frames, armor stands, villagers — treated
+        // as ally-permissive when ally-interact is on (default), so allies
+        // can loot frames / trade with villagers in your land. Outsiders
+        // still blocked entirely.
+        boolean ok = access.allyInteractEnabled()
+                ? access.canUseAsAlly(event.getPlayer(), target.getLocation())
+                : access.canBuild(event.getPlayer(), target.getLocation());
+        if (!ok) {
             event.setCancelled(true);
             denyMessage(event.getPlayer(), "interact");
         }
@@ -140,7 +144,11 @@ public final class ProtectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onArmorStand(PlayerArmorStandManipulateEvent event) {
-        if (!access.canBuild(event.getPlayer(), event.getRightClicked().getLocation())) {
+        // Armor stands hold gear — same ally-permissive policy as item frames.
+        boolean ok = access.allyInteractEnabled()
+                ? access.canUseAsAlly(event.getPlayer(), event.getRightClicked().getLocation())
+                : access.canBuild(event.getPlayer(), event.getRightClicked().getLocation());
+        if (!ok) {
             event.setCancelled(true);
             denyMessage(event.getPlayer(), "interact");
         }

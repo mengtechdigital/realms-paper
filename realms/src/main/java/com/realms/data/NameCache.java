@@ -1,5 +1,6 @@
 package com.realms.data;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.Locale;
@@ -43,6 +44,31 @@ public final class NameCache {
     public String getOr(UUID uuid, String fallback) {
         String name = get(uuid);
         return name == null ? fallback : name;
+    }
+
+    /**
+     * Cache miss path that consults Bukkit's offline-player cache as a
+     * fallback. Useful for displaying historical UUIDs (founders, former
+     * mayors) when the player hasn't logged in this session — Bukkit's
+     * usercache.json typically still has the name. UUID overload is fast
+     * (no main-thread filesystem read for the name lookup).
+     */
+    public String getOrLookup(UUID uuid, String fallback) {
+        if (uuid == null) return fallback;
+        String cached = nameByUuid.get(uuid);
+        if (cached != null) return cached;
+        try {
+            var off = Bukkit.getOfflinePlayer(uuid);
+            String name = off.getName();
+            if (name != null && !name.isEmpty()) {
+                remember(uuid, name);
+                return name;
+            }
+            // Catch Exception (not Throwable) — Errors like OOM / StackOverflow
+            // must propagate so the server can crash cleanly instead of being
+            // masked by a name-lookup helper.
+        } catch (Exception ignored) { /* fall through */ }
+        return fallback;
     }
 
     /** Resolve a name (case-insensitive) to UUID, or null if unknown. */

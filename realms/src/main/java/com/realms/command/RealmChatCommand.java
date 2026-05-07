@@ -5,6 +5,7 @@ import com.realms.data.Realm;
 import com.realms.data.RealmsStore;
 import com.realms.data.Resident;
 import com.realms.manager.DiplomacyManager;
+import com.realms.manager.RealmTitles;
 import com.realms.manager.Text;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -66,8 +67,7 @@ public final class RealmChatCommand implements CommandExecutor {
         String safeMessage = ChatColor.stripColor(
                 ChatColor.translateAlternateColorCodes('&', rawMessage));
         String formatted = Text.render(config.realmChatFormat(), Map.of(
-                "role",    me.role().name().substring(0, 1)
-                          + me.role().name().substring(1).toLowerCase(java.util.Locale.ROOT),
+                "role",    RealmTitles.label(store, realm.id(), me.role()),
                 "name",    player.getName(),
                 "realm",   realm.name(),
                 "message", safeMessage

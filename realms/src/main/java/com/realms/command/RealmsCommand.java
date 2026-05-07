@@ -21,6 +21,7 @@ import com.realms.manager.HomeManager;
 import com.realms.manager.OverclaimManager;
 import com.realms.manager.PowerCalc;
 import com.realms.manager.RealmManager;
+import com.realms.manager.RealmTitles;
 import com.realms.manager.Result;
 import com.realms.manager.Text;
 import org.bukkit.Bukkit;
@@ -49,10 +50,11 @@ import java.util.stream.Collectors;
 public final class RealmsCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "create", "disband", "claim", "unclaim",
+            "create", "disband", "rename", "claim", "unclaim",
             "invite", "join", "leave", "kick",
             "promote", "demote", "transfer",
-            "sethome", "home", "spawn",
+            "title",
+            "sethome", "home", "spawn", "delhome", "homes",
             "info", "here", "who", "list", "map", "power",
             "top", "leaderboard", "lb",
             "flag",
@@ -64,6 +66,10 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             "admin",
             "help"
     );
+
+    /** Roles that can be customised via /realm title. */
+    private static final List<String> TITLE_ROLES =
+            Arrays.asList("mayor", "assistant", "resident");
 
     private final RealmsPlugin plugin;
     private final RealmsConfig config;
@@ -144,6 +150,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         switch (sub) {
             case "create" -> runCreate(player, args);
             case "disband" -> runDisband(player, args);
+            case "rename" -> runRename(player, args);
             case "claim" -> runClaim(player, args);
             case "unclaim" -> runUnclaim(player);
             case "invite" -> runInvite(player, args);
@@ -153,6 +160,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "promote" -> runPromote(player, args);
             case "demote" -> runDemote(player, args);
             case "transfer" -> runTransfer(player, args);
+            case "title" -> runTitle(player, args);
             case "here" -> runHere(player);
             case "who" -> runWho(player, args);
             case "power" -> runPower(player);
@@ -165,8 +173,10 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             case "overclaim" -> deliver(player, overclaim.start(player));
             case "flag" -> runFlag(player, args);
             case "admin" -> runAdmin(player, args);
-            case "sethome" -> deliver(player, home.setHome(player));
-            case "home", "spawn" -> deliver(player, home.home(player));
+            case "sethome" -> runSetHome(player, args);
+            case "home", "spawn" -> runHome(player, args);
+            case "delhome" -> runDelHome(player, args);
+            case "homes" -> runHomes(player);
             case "map" -> runMap(player);
             case "display" -> runDisplay(player, args);
             case "togglebar" -> runToggleBar(player);
@@ -177,6 +187,131 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                     "&cUnknown subcommand. Try &e/realm help&c."));
         }
         return true;
+    }
+
+    // ---- Home subcommands ------------------------------------------------
+
+    private void runSetHome(Player player, String[] args) {
+        if (args.length >= 2) {
+            deliver(player, home.setHome(player, args[1]));
+            return;
+        }
+        deliver(player, home.setHome(player));
+    }
+
+    private void runHome(Player player, String[] args) {
+        if (args.length >= 2) {
+            deliver(player, home.home(player, args[1]));
+            return;
+        }
+        deliver(player, home.home(player));
+    }
+
+    private void runDelHome(Player player, String[] args) {
+        if (args.length < 2) {
+            player.sendMessage(Text.colorize("&7Usage: /realm delhome <name>"));
+            return;
+        }
+        deliver(player, home.deleteHome(player, args[1]));
+    }
+
+    private void runHomes(Player player) {
+        Resident me = store.getResident(player.getUniqueId());
+        if (me == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+        Realm realm = store.getRealm(me.realmId());
+        if (realm == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+
+        java.util.Map<String, org.bukkit.Location> homes = home.listHomes(player);
+        int max = home.maxNamedSlots(realm);
+        int namedUsed = store.namedHomeCount(realm.id());
+        boolean disabled = config.homePowerPerSlot() <= 0;
+        // Distinguish "feature off" from "no slots earned yet" — otherwise a
+        // realm with stale named homes from a previous config sees "n/0",
+        // which reads like a violation.
+        String header = disabled
+                ? "&6" + realm.name() + " &7— homes &8(named homes disabled by server)"
+                : "&6" + realm.name() + " &7— homes (" + namedUsed + "/" + max + " named slots used)";
+        StringBuilder sb = new StringBuilder(Text.colorize(header));
+        if (homes.isEmpty()) {
+            sb.append(Text.colorize("\n  &7No homes set. Mayor: &e/realm sethome [name]&7."));
+        } else {
+            // Default first, then named alphabetically.
+            org.bukkit.Location def = homes.get("default");
+            if (def != null) {
+                sb.append(Text.colorize("\n  &7- &edefault &8→ &f"
+                        + (def.getWorld() == null ? "?" : def.getWorld().getName())
+                        + " (" + def.getBlockX() + "," + def.getBlockY() + "," + def.getBlockZ() + ")"));
+            }
+            homes.entrySet().stream()
+                    .filter(e -> !"default".equals(e.getKey()))
+                    .sorted(java.util.Map.Entry.comparingByKey())
+                    .forEach(e -> {
+                        org.bukkit.Location l = e.getValue();
+                        sb.append(Text.colorize("\n  &7- &b" + e.getKey() + " &8→ &f"
+                                + (l.getWorld() == null ? "?" : l.getWorld().getName())
+                                + " (" + l.getBlockX() + "," + l.getBlockY() + "," + l.getBlockZ() + ")"));
+                    });
+        }
+        if (!disabled && namedUsed < max) {
+            sb.append(Text.colorize("\n  &8(" + (max - namedUsed) + " more named slot(s) available)"));
+        }
+        player.sendMessage(sb.toString());
+    }
+
+    // ---- Rename / title --------------------------------------------------
+
+    private void runRename(Player player, String[] args) {
+        if (args.length < 2) {
+            player.sendMessage(Text.colorize("&7Usage: /realm rename <new-name>"));
+            return;
+        }
+        deliver(player, realms.rename(player, args[1]));
+    }
+
+    private void runTitle(Player player, String[] args) {
+        Resident me = store.getResident(player.getUniqueId());
+        if (me == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+        Realm realm = store.getRealm(me.realmId());
+        if (realm == null) { deliver(player, Result.fail("errors.not-in-realm")); return; }
+
+        if (args.length < 2) {
+            // List current titles + the default for any role without an override.
+            StringBuilder sb = new StringBuilder(Text.colorize(
+                    "&6" + realm.name() + " &7— role titles"));
+            for (Role role : Role.values()) {
+                String override = store.titleFor(realm.id(), role);
+                String def = com.realms.manager.RealmTitles.defaultLabel(role);
+                if (override == null) {
+                    sb.append(Text.colorize("\n  &7- &e"
+                            + role.name().toLowerCase(Locale.ROOT)
+                            + " &8→ &f" + def + " &8(default)"));
+                } else {
+                    sb.append(Text.colorize("\n  &7- &e"
+                            + role.name().toLowerCase(Locale.ROOT)
+                            + " &8→ &b" + override
+                            + " &8(was " + def + ")"));
+                }
+            }
+            sb.append(Text.colorize(
+                    "\n  &7Mayor: &e/realm title <role> <title|reset>&7."));
+            player.sendMessage(sb.toString());
+            return;
+        }
+        String roleArg = args[1].toLowerCase(Locale.ROOT);
+        Role role;
+        try { role = Role.valueOf(roleArg.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException e) {
+            deliver(player, Result.fail("errors.title-invalid-role"));
+            return;
+        }
+        if (args.length < 3) {
+            player.sendMessage(Text.colorize(
+                    "&7Usage: /realm title " + roleArg + " <title|reset>"));
+            return;
+        }
+        // Join args[2..] so multi-word titles like "Land Holder" work.
+        String title = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
+        deliver(player, realms.setTitle(player, role, title));
     }
 
     // ---- Subcommand handlers ---------------------------------------------
@@ -213,6 +348,14 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         if (r.ok() && "1".equals(r.placeholders().get("home-cleared"))) {
             player.sendMessage(msg("info.unclaim-cleared-home",
                     "&eRealm home was in that chunk and has been cleared."));
+        }
+        // Same for any named homes that lived in the unclaimed chunk.
+        String namedCleared = r.placeholders().get("named-cleared");
+        if (r.ok() && namedCleared != null && !"0".equals(namedCleared)) {
+            player.sendMessage(Text.render(
+                    config.message("info.unclaim-cleared-named-homes",
+                            "&e{n} named realm home(s) were in that chunk and have been cleared."),
+                    Map.of("n", namedCleared)));
         }
     }
 
@@ -289,11 +432,13 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         List<Resident> members = store.residentsOf(realm.id());
         StringBuilder sb = new StringBuilder();
         sb.append(Text.colorize("&6" + realm.name() + "&7 (" + members.size() + " members)\n"));
+        long realmId = realm.id();
         members.stream()
                 .sorted((a, b) -> Integer.compare(a.role().ordinal(), b.role().ordinal()))
                 .forEach(r -> sb.append(Text.colorize("  &7- "
-                        + roleColor(r.role()) + r.role().name().toLowerCase(Locale.ROOT)
-                        + " &f" + nameCache.getOr(r.uuid(), "?") + "\n")));
+                        + roleColor(r.role())
+                        + RealmTitles.label(store, realmId, r.role())
+                        + " &f" + nameCache.getOrLookup(r.uuid(), "?") + "\n")));
         player.sendMessage(sb.toString().stripTrailing());
     }
 
@@ -362,7 +507,7 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
             return;
         }
         sender.sendMessage(Text.colorize(
-                "&6" + realm.name() + " &7— founded by " + nameCache.getOr(realm.founder(), "?") +
+                "&6" + realm.name() + " &7— founded by " + nameCache.getOrLookup(realm.founder(), "?") +
                 "\n  &7Members: &f" + store.residentCount(realm.id()) +
                 "\n  &7Chunks:  &f" + store.claimCount(realm.id()) +
                 "\n  &7Power:   &f" + realm.cachedPower() +
@@ -879,7 +1024,12 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(Text.colorize("  &e/realm overclaim &7— take a weakened enemy chunk"));
         sender.sendMessage(Text.colorize("  &e/realm invite|join|leave|kick &7— membership"));
         sender.sendMessage(Text.colorize("  &e/realm promote|demote|transfer &7— role management (mayor)"));
-        sender.sendMessage(Text.colorize("  &e/realm sethome|home &7— set / teleport realm spawn"));
+        sender.sendMessage(Text.colorize("  &e/realm sethome [name] &7— set default or named home (mayor)"));
+        sender.sendMessage(Text.colorize("  &e/realm home [name] &7— teleport to default or named home"));
+        sender.sendMessage(Text.colorize("  &e/realm delhome <name> &7— delete a named home (mayor)"));
+        sender.sendMessage(Text.colorize("  &e/realm homes &7— list realm homes"));
+        sender.sendMessage(Text.colorize("  &e/realm rename <name> &7— rename your realm (mayor)"));
+        sender.sendMessage(Text.colorize("  &e/realm title <role> <text|reset> &7— customise role label (mayor)"));
         sender.sendMessage(Text.colorize("  &e/realm info|here|who|list|power|map &7— info"));
         sender.sendMessage(Text.colorize("  &e/realm power blocks &7— list valuable blocks that grow realm power"));
         sender.sendMessage(Text.colorize("  &e/realm top [power|members|chunks|age] &7— leaderboard"));
@@ -919,9 +1069,56 @@ public final class RealmsCommand implements CommandExecutor, TabCompleter {
                 case "admin" -> List.of("peaceful", "bypass", "zone");
                 case "display" -> List.of("title", "bar", "sound");
                 case "showclaim", "sc", "visualize" -> List.of("line", "wall", "corner", "off");
+                case "title" -> TITLE_ROLES;
+                case "home", "spawn", "delhome" -> homeNamesFor(sender);
                 default -> Collections.emptyList();
             };
         }
+        if (args.length == 3) {
+            String sub = args[0].toLowerCase(Locale.ROOT);
+            if (sub.equals("title")) return titleSuggestionsFor(sender, args[1]);
+        }
         return Collections.emptyList();
+    }
+
+    /**
+     * Suggest "reset" plus the role's current label (override or default) so
+     * a single TAB at position 3 of /realm title gives the player either a
+     * clear-back-to-default option or their current title to edit.
+     */
+    private List<String> titleSuggestionsFor(CommandSender sender, String roleArg) {
+        Role role;
+        try { role = Role.valueOf(roleArg.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException e) { return List.of("reset"); }
+        if (!(sender instanceof Player p)) return List.of("reset");
+        Resident me = store.getResident(p.getUniqueId());
+        if (me == null) return List.of("reset");
+        String current = RealmTitles.label(store, me.realmId(), role);
+        // Suggest "reset" first (the more common operation) and the current
+        // label as a starting point for an edit. Single-token labels work
+        // verbatim through TAB; multi-word labels still need manual entry,
+        // since Bukkit splits args on whitespace.
+        if (current == null || current.isBlank() || current.contains(" ")) {
+            return List.of("reset");
+        }
+        return List.of("reset", current);
+    }
+
+    /**
+     * Tab-suggest the home names available to {@code sender}'s realm —
+     * "default" plus any named homes. Returns empty when the sender isn't
+     * in a realm.
+     */
+    private List<String> homeNamesFor(CommandSender sender) {
+        if (!(sender instanceof Player p)) return Collections.emptyList();
+        Resident me = store.getResident(p.getUniqueId());
+        if (me == null) return Collections.emptyList();
+        Realm realm = store.getRealm(me.realmId());
+        if (realm == null) return Collections.emptyList();
+        List<String> out = new ArrayList<>();
+        if (realm.hasHome()) out.add("default");
+        out.addAll(store.namedHomes(realm.id()).keySet());
+        Collections.sort(out);
+        return out;
     }
 }

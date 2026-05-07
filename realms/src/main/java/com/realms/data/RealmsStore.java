@@ -130,4 +130,37 @@ public interface RealmsStore {
     DisplayPrefs getDisplayPrefs(UUID uuid);
 
     void putDisplayPrefs(UUID uuid, DisplayPrefs prefs);
+
+    // -- Named homes ---------------------------------------------------------
+
+    /**
+     * Replace (or insert) a named home for {@code realmId}. Names are
+     * canonicalised to lowercase by the manager layer before this call.
+     */
+    void putNamedHome(long realmId, NamedHome home);
+
+    /** Drop a named home. No-op if absent. */
+    void removeNamedHome(long realmId, String name);
+
+    /** Lookup a single named home, or null if missing / world unloaded. */
+    NamedHome getNamedHome(long realmId, String name);
+
+    /** Snapshot map of name → home for a realm. Empty when no named homes. */
+    Map<String, NamedHome> namedHomes(long realmId);
+
+    int namedHomeCount(long realmId);
+
+    // -- Role titles ---------------------------------------------------------
+
+    /** Override the visible title for a role within a realm (e.g. MAYOR → "Lord"). */
+    void setTitle(long realmId, Role role, String title);
+
+    /** Clear the role title override; subsequent reads return {@code null}. */
+    void clearTitle(long realmId, Role role);
+
+    /** Custom title for {@code (realmId, role)}, or {@code null} if no override. */
+    String titleFor(long realmId, Role role);
+
+    /** Snapshot of all custom titles for a realm. Empty when none set. */
+    Map<Role, String> titlesOf(long realmId);
 }

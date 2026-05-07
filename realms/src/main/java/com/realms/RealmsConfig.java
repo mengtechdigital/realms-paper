@@ -193,6 +193,29 @@ public final class RealmsConfig {
     public boolean homeCancelOnMove() { return config.getBoolean("home.cancel-on-move", true); }
     public boolean homeCancelOnDamage() { return config.getBoolean("home.cancel-on-damage", true); }
 
+    /**
+     * Power required to unlock one additional named home beyond the default.
+     * Returns 0 to mean "named homes disabled" — the default home still
+     * works but no /realm sethome <name> succeeds. Floors at 1 to keep the
+     * division well-defined.
+     */
+    public int homePowerPerSlot() {
+        int v = config.getInt("home.power-per-slot", 50);
+        return Math.max(0, v);
+    }
+
+    public int homeNameMin() { return Math.max(1, config.getInt("home.name-min-length", 1)); }
+    public int homeNameMax() { return Math.max(1, config.getInt("home.name-max-length", 16)); }
+
+    // Allies ----------------------------------------------------------------
+
+    /**
+     * If true, allied realms can open containers, use workstations, and
+     * interact with entities (item frames, armor stands, villagers) inside
+     * each other's claims. Build / break is still members-only.
+     */
+    public boolean allyInteract() { return config.getBoolean("ally-interact", true); }
+
     // Messages --------------------------------------------------------------
 
     public String message(String path, String fallback) {

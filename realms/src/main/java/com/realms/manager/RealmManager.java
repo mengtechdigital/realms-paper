@@ -252,6 +252,101 @@ public final class RealmManager {
         ));
     }
 
+    /**
+     * Rename the realm. Mayor only. Validates the new name with the same
+     * rules used at creation, and refuses if the name is already taken
+     * (case-insensitive). Renaming is in-place — claim, member, and
+     * relation rows continue to point at the realm's stable id.
+     */
+    public Result rename(Player actor, String rawName) {
+        Resident me = store.getResident(actor.getUniqueId());
+        if (me == null) return Result.fail("errors.not-in-realm");
+        if (me.role() != Role.MAYOR) return Result.fail("errors.not-mayor");
+        Realm realm = store.getRealm(me.realmId());
+        if (realm == null) return Result.fail("errors.not-in-realm");
+        String name = rawName == null ? "" : rawName.trim();
+        Result nameCheck = validateName(name);
+        if (!nameCheck.ok()) return nameCheck;
+        // Allow same-name "rename" (case difference) so mayors can fix
+        // capitalization. Any other realm holding the new key is a conflict.
+        Realm clash = store.getRealmByName(name);
+        if (clash != null && clash.id() != realm.id()) {
+            return Result.fail("errors.name-taken", Map.of("realm", name));
+        }
+        if (realm.name().equals(name)) {
+            return Result.fail("errors.rename-no-change", Map.of("realm", name));
+        }
+        String oldName = realm.name();
+        store.updateRealm(realm.withName(name));
+        // Refresh chat/tab prefixes for everyone in the realm so the new
+        // name surfaces immediately without requiring a relog.
+        for (Resident r : store.residentsOf(realm.id())) {
+            Player online = Bukkit.getPlayer(r.uuid());
+            if (online != null) prefixRefresh.accept(online);
+        }
+        return Result.ok("info.realm-renamed", Map.of(
+                "old", oldName,
+                "realm", name
+        ));
+    }
+
+    /**
+     * Override the role title for a realm (e.g. "Lord" instead of "Mayor").
+     * Mayor only. {@code reset} (case-insensitive) clears the override back
+     * to the plugin default.
+     */
+    public Result setTitle(Player actor, Role role, String rawTitle) {
+        Resident me = store.getResident(actor.getUniqueId());
+        if (me == null) return Result.fail("errors.not-in-realm");
+        if (me.role() != Role.MAYOR) return Result.fail("errors.not-mayor");
+        if (role == null) return Result.fail("errors.title-invalid-role");
+
+        if (rawTitle == null || rawTitle.isBlank()
+                || rawTitle.equalsIgnoreCase("reset")
+                || rawTitle.equalsIgnoreCase("default")) {
+            store.clearTitle(me.realmId(), role);
+            // Reapply prefixes so {role} substitution updates live.
+            refreshRealmPrefixes(me.realmId());
+            return Result.ok("info.title-cleared", Map.of(
+                    "role", role.name().toLowerCase(Locale.ROOT)
+            ));
+        }
+        Result check = validateTitle(rawTitle);
+        if (!check.ok()) return check;
+        // Strip color codes — chat injection vector. The title appears in
+        // chat prefix, where embedded &-codes could spoof admin messages.
+        String safe = Text.stripColor(rawTitle.trim());
+        if (safe.isBlank()) return Result.fail("errors.title-invalid");
+        store.setTitle(me.realmId(), role, safe);
+        refreshRealmPrefixes(me.realmId());
+        return Result.ok("info.title-set", Map.of(
+                "role", role.name().toLowerCase(Locale.ROOT),
+                "title", safe
+        ));
+    }
+
+    private void refreshRealmPrefixes(long realmId) {
+        for (Resident r : store.residentsOf(realmId)) {
+            Player online = Bukkit.getPlayer(r.uuid());
+            if (online != null) prefixRefresh.accept(online);
+        }
+    }
+
+    private Result validateTitle(String raw) {
+        String t = raw == null ? "" : raw.trim();
+        if (t.length() < 2 || t.length() > 20) return Result.fail("errors.title-invalid");
+        // Letters, digits, space, dash, underscore, apostrophe — keeps
+        // multi-word titles like "Land Holder" working without opening
+        // the door to control characters or markup.
+        for (int i = 0; i < t.length(); i++) {
+            char ch = t.charAt(i);
+            if (Character.isLetterOrDigit(ch)) continue;
+            if (ch == ' ' || ch == '-' || ch == '_' || ch == '\'') continue;
+            return Result.fail("errors.title-invalid");
+        }
+        return Result.ok("");
+    }
+
     public Result transferMayorship(Player mayor, String targetName) {
         Resident me = store.getResident(mayor.getUniqueId());
         if (me == null) return Result.fail("errors.not-in-realm");
