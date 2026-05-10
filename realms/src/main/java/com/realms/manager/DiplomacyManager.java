@@ -7,6 +7,7 @@ import com.realms.data.Relation;
 import com.realms.data.RelationKind;
 import com.realms.data.Resident;
 import com.realms.data.Role;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.time.Instant;
@@ -100,10 +101,20 @@ public final class DiplomacyManager {
             store.putRelation(new Relation(target.id(), my, RelationKind.ALLY, now));
             proposals.clear(target.id());
             proposals.clear(my);
+            Realm myRealm = store.getRealm(my);
+            String myName = myRealm == null ? "?" : myRealm.name();
+            notifyRealm(target.id(), config.message("info.ally-confirmed", "&aAlly with &6{realm}&a established."),
+                    Map.of("realm", myName));
+            broadcast(config.message("broadcasts.ally-formed", "&6{realm-a}&7 and &6{realm-b}&7 are now allies."),
+                    Map.of("realm-a", myName, "realm-b", target.name()));
             return Result.ok("info.ally-confirmed", Map.of("realm", target.name()));
         }
         // First-mover — record proposal, notify target side.
         proposals.put(my, target.id());
+        Realm myRealm = store.getRealm(my);
+        String myName = myRealm == null ? "?" : myRealm.name();
+        notifyRealm(target.id(), config.message("info.ally-incoming", "&6{realm}&a wants to ally. Run &e/realm ally {realm}&a to accept."),
+                Map.of("realm", myName));
         return Result.ok("info.ally-requested", Map.of("realm", target.name()));
     }
 
@@ -136,6 +147,12 @@ public final class DiplomacyManager {
             store.removeRelation(target.id(), my);
         }
         store.putRelation(new Relation(my, target.id(), RelationKind.ENEMY, now));
+        Realm myRealm = store.getRealm(my);
+        String myName = myRealm == null ? "?" : myRealm.name();
+        notifyRealm(target.id(), config.message("info.enemy-incoming", "&c{realm}&e has declared war on you."),
+                Map.of("realm", myName));
+        broadcast(config.message("broadcasts.enemy-declared", "&c{realm-a}&7 has declared war on &c{realm-b}&7."),
+                Map.of("realm-a", myName, "realm-b", target.name()));
         return Result.ok("info.enemy-declared", Map.of("realm", target.name()));
     }
 
@@ -152,6 +169,9 @@ public final class DiplomacyManager {
         if (existing == null && reverse == null) {
             return Result.fail("errors.already-neutral", Map.of("realm", target.name()));
         }
+        Realm myRealm = store.getRealm(my);
+        String myName = myRealm == null ? "?" : myRealm.name();
+
         if (existing != null && existing.kind() == RelationKind.ENEMY) {
             // Unilateral pull-out from war. Arm the redeclare cooldown so
             // the actor can't immediately swing back to enemy.
@@ -164,12 +184,18 @@ public final class DiplomacyManager {
             // attempt in limbo for up to one tick before the periodic
             // re-validation drops it — and gives no signal to the player.
             if (overclaimRef != null) overclaimRef.abortForRealmPair(my, target.id());
+            broadcast(config.message("broadcasts.enemy-stood-down", "&6{realm-a}&7 has stood down from war with &6{realm-b}&7."),
+                    Map.of("realm-a", myName, "realm-b", target.name()));
         }
         if (existing != null && existing.kind() == RelationKind.ALLY) {
             // Alliance dissolution is unilateral by convention; remove BOTH
             // rows so the other side stops believing they're allied too.
             store.removeRelation(my, target.id());
             store.removeRelation(target.id(), my);
+            notifyRealm(target.id(), config.message("info.ally-broken", "&eAlliance with &6{realm}&e ended."),
+                    Map.of("realm", myName));
+            broadcast(config.message("broadcasts.ally-broken", "&6{realm-a}&7 broke their alliance with &6{realm-b}&7."),
+                    Map.of("realm-a", myName, "realm-b", target.name()));
         }
         // If they had declared on us (and we hadn't on them), our /neutral
         // doesn't unilaterally erase their declaration — only we control
@@ -213,5 +239,19 @@ public final class DiplomacyManager {
 
     private Resident actor(Player p) {
         return store.getResident(p.getUniqueId());
+    }
+
+    private void notifyRealm(long realmId, String template, Map<String, String> placeholders) {
+        String msg = Text.render(template, placeholders);
+        for (Resident r : store.residentsOf(realmId)) {
+            Player p = Bukkit.getPlayer(r.uuid());
+            if (p != null && p.isOnline()) {
+                p.sendMessage(msg);
+            }
+        }
+    }
+
+    private void broadcast(String template, Map<String, String> placeholders) {
+        Bukkit.broadcastMessage(Text.render(template, placeholders));
     }
 }
