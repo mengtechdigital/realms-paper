@@ -32,6 +32,9 @@ claim:
   confirm-required-from-diameter: 5
   # Confirm token expires after this many seconds.
   confirm-expiry-seconds: 30
+  # Restrict claiming to specific worlds. Leave empty to allow all worlds.
+  # Example: allowed-worlds: [world]
+  allowed-worlds: []
 
 raid:
   # Whether raid/overclaim is enabled at all. Disable for purely peaceful servers.
@@ -72,6 +75,11 @@ ally-spawn-access: false
 # workstations (furnaces, anvils), and interacting with entities (item frames,
 # armor stands, villagers). Build / break is still strictly members-only.
 ally-interact: true
+
+# When true, allied realms can build and break blocks inside each other's
+# claims as if they were members. This affects all block-modifying events
+# (place, break, bucket use, ignite, hanging entities, etc.).
+ally-build: false
 
 # Prefix / suffix mode for chat / tab nameplate.
 #   off              → don't apply this side at all

@@ -57,6 +57,11 @@ public final class ClaimManager {
             return Result.fail("errors.diameter-too-large", Map.of("n", String.valueOf(max)));
         }
 
+        String worldName = player.getWorld().getName();
+        if (!config.isClaimAllowed(worldName)) {
+            return Result.fail("errors.claim-disabled-world", Map.of("world", worldName));
+        }
+
         ClaimKey center = ClaimKey.of(player.getLocation());
         int r = (diameter - 1) / 2;
 

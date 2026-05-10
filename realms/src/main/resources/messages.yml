@@ -24,6 +24,7 @@ errors:
   # but no longer emitted — adjacency is no longer enforced.
   not-adjacent: "&cThe claim must touch your existing land."
   insufficient-power: "&cNot enough realm power. Have &e{power}&c, need &e{n}&c."
+  claim-disabled-world: "&cClaims are disabled in &e{world}&c."
   diameter-not-odd: "&cClaim diameter must be an odd number (1, 3, 5, 7…)."
   diameter-too-large: "&cMax claim diameter is &e{n}&c."
   confirm-required: "&eThis will claim &6{n}&e chunks for &6{cost}&e power. Run &6/realm claim {diameter} confirm&e to confirm."

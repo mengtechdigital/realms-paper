@@ -73,6 +73,10 @@ public final class RealmManager {
         if (store.getRealmByName(name) != null) {
             return Result.fail("errors.name-taken", Map.of("realm", name));
         }
+        String worldName = founder.getWorld().getName();
+        if (!config.isClaimAllowed(worldName)) {
+            return Result.fail("errors.claim-disabled-world", Map.of("world", worldName));
+        }
         ClaimKey here = ClaimKey.of(founder.getLocation());
         Long owner = store.claimOwner(here);
         if (owner != null) {

@@ -43,7 +43,10 @@ public final class ClaimAccess {
         this.diplomacy = diplomacy;
     }
 
-    /** Modify-the-world authority — members only; admin zones lock everyone out. */
+    /**
+     * Modify-the-world authority — members only by default; allies are also
+     * allowed when {@code ally-build} is enabled. Admin zones lock everyone out.
+     */
     public boolean canBuild(Player player, Location at) {
         if (player == null || at == null || at.getWorld() == null) return true;
         if (bypass.is(player.getUniqueId())) return true;
@@ -53,7 +56,12 @@ public final class ClaimAccess {
         // Admin zones (safezone / warzone) — no player can build, only ops
         // with bypass on (already short-circuited above).
         if (realm != null && realm.isAdminZone()) return false;
-        return isMemberOf(player.getUniqueId(), ownerId);
+        if (isMemberOf(player.getUniqueId(), ownerId)) return true;
+        if (config.allyBuild()) {
+            Resident me = store.getResident(player.getUniqueId());
+            if (me != null && diplomacy.areAllies(me.realmId(), ownerId)) return true;
+        }
+        return false;
     }
 
     /** Members and allies. Used by door/button/lever/plate/bed interactions. */

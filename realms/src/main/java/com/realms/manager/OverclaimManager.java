@@ -79,6 +79,11 @@ public final class OverclaimManager {
         Realm myRealm = store.getRealm(me.realmId());
         if (myRealm == null) return Result.fail("errors.not-in-realm");
 
+        String worldName = player.getWorld().getName();
+        if (!config.isClaimAllowed(worldName)) {
+            return Result.fail("errors.claim-disabled-world", Map.of("world", worldName));
+        }
+
         ClaimKey here = ClaimKey.of(player.getLocation());
         Long ownerId = store.claimOwner(here);
         // Long == long auto-boxes — identity comparison only works for cached

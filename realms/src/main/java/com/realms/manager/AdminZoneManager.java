@@ -71,6 +71,11 @@ public final class AdminZoneManager {
             return Result.fail("errors.diameter-too-large", Map.of("n", String.valueOf(max)));
         }
 
+        String worldName = op.getWorld().getName();
+        if (!config.isClaimAllowed(worldName)) {
+            return Result.fail("errors.claim-disabled-world", Map.of("world", worldName));
+        }
+
         ClaimKey center = ClaimKey.of(op.getLocation());
         int r = (diameter - 1) / 2;
 

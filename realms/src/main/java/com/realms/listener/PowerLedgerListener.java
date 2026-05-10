@@ -11,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockFromToEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 
 /**
@@ -68,6 +69,44 @@ public final class PowerLedgerListener implements Listener {
         if (realm != null && realm.isAdminZone()) return;
         store.deltaPower(key, type, -1);
         recompute(realmId);
+    }
+
+    /**
+     * Dragon eggs teleport when clicked instead of dropping as an item.
+     * Vanilla fires {@link BlockFromToEvent} for the move; we mirror the
+     * power ledger from the source chunk to the destination chunk so that
+     * breaking the egg later actually decrements the correct ledger row.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockFromTo(BlockFromToEvent event) {
+        Block fromBlock = event.getBlock();
+        if (fromBlock.getType() != Material.DRAGON_EGG) return;
+        if (!isTracked(Material.DRAGON_EGG)) return;
+
+        ClaimKey fromKey = ClaimKey.of(fromBlock.getLocation());
+        ClaimKey toKey = ClaimKey.of(event.getToBlock().getLocation());
+        if (fromKey.equals(toKey)) return; // same chunk — net zero, skip
+
+        Long fromRealmId = store.claimOwner(fromKey);
+        Long toRealmId = store.claimOwner(toKey);
+
+        if (fromRealmId != null) {
+            Realm fromRealm = store.getRealm(fromRealmId);
+            if (fromRealm != null && !fromRealm.isAdminZone()) {
+                store.deltaPower(fromKey, Material.DRAGON_EGG, -1);
+                recompute(fromRealmId);
+            }
+        }
+
+        if (toRealmId != null) {
+            Realm toRealm = store.getRealm(toRealmId);
+            if (toRealm != null && !toRealm.isAdminZone()) {
+                store.deltaPower(toKey, Material.DRAGON_EGG, +1);
+                if (!toRealmId.equals(fromRealmId)) {
+                    recompute(toRealmId);
+                }
+            }
+        }
     }
 
     private boolean isTracked(Material type) {

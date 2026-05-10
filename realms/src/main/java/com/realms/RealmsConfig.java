@@ -33,6 +33,7 @@ public final class RealmsConfig {
     private FileConfiguration powerBlocks;
     private Map<Material, Long> powerValues = Collections.emptyMap();
     private Set<String> reservedNames = Collections.emptySet();
+    private Set<String> claimAllowedWorlds = Collections.emptySet();
 
     public void load(RealmsPlugin plugin) {
         plugin.saveDefaultConfig();
@@ -59,6 +60,11 @@ public final class RealmsConfig {
         List<String> reservedList = config.getStringList("realm-name.reserved");
         for (String s : reservedList) reserved.add(s.toLowerCase(Locale.ROOT));
         this.reservedNames = Collections.unmodifiableSet(reserved);
+
+        Set<String> allowedWorlds = new HashSet<>();
+        List<String> worldsList = config.getStringList("claim.allowed-worlds");
+        for (String s : worldsList) allowedWorlds.add(s.toLowerCase(Locale.ROOT));
+        this.claimAllowedWorlds = Collections.unmodifiableSet(allowedWorlds);
     }
 
     private static FileConfiguration loadOrCopy(RealmsPlugin plugin, String name) {
@@ -82,6 +88,17 @@ public final class RealmsConfig {
     public FileConfiguration messages() { return messages; }
     public Map<Material, Long> powerValues() { return powerValues; }
     public Set<String> reservedNames() { return reservedNames; }
+
+    /**
+     * If the config list {@code claim.allowed-worlds} is non-empty, claims
+     * (including realm creation, /realm claim, admin zone claim and overclaim)
+     * are restricted to those world names.  An empty list means all worlds
+     * are allowed — the default for backward compatibility.
+     */
+    public boolean isClaimAllowed(String worldName) {
+        if (claimAllowedWorlds.isEmpty()) return true;
+        return claimAllowedWorlds.contains(worldName.toLowerCase(Locale.ROOT));
+    }
 
     // Accessors with sensible defaults -------------------------------------
 
@@ -215,6 +232,13 @@ public final class RealmsConfig {
      * each other's claims. Build / break is still members-only.
      */
     public boolean allyInteract() { return config.getBoolean("ally-interact", true); }
+
+    /**
+     * If true, allied realms can build and break blocks inside each other's
+     * claims as if they were members. This affects all block-modifying
+     * events: place, break, bucket use, ignite, hanging entities, etc.
+     */
+    public boolean allyBuild() { return config.getBoolean("ally-build", false); }
 
     // Messages --------------------------------------------------------------
 
