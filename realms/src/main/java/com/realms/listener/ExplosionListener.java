@@ -12,6 +12,8 @@ import org.bukkit.entity.Creeper;
 import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LargeFireball;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 import org.bukkit.entity.TNTPrimed;
 import org.bukkit.entity.Wither;
 import org.bukkit.entity.WitherSkull;
@@ -33,6 +35,9 @@ import java.util.Set;
  * sources whose policy resolves to VANILLA in a non-peaceful claim, blocks
  * that match the power-ledger value table get a deltaPower(-1) before
  * they actually break — that's the Factions-style raid drain.
+ *
+ * Mob-caused explosions (creepers, ghasts, withers, and TNT whose source
+ * is a mob) are additionally gated by the {@code mob-griefing} realm flag.
  *
  * Wilderness chunks are unaffected — the listener returns the explosion
  * intact for those.
@@ -59,8 +64,9 @@ public final class ExplosionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
         ExplosionPolicy policy = policyForSource(event.getEntity());
+        boolean mobCaused = isMobCaused(event.getEntity());
         Set<Long> affectedRealms = new HashSet<>();
-        applyPolicy(event.blockList().iterator(), policy, affectedRealms);
+        applyPolicy(event.blockList().iterator(), policy, mobCaused, affectedRealms);
         recomputeAll(affectedRealms);
     }
 
@@ -82,7 +88,7 @@ public final class ExplosionListener implements Listener {
                 || Material.BROWN_BED.equals(src)) policy = config.explosionBed();
         else policy = ExplosionPolicy.VANILLA; // unknown block-source: leave alone
         Set<Long> affectedRealms = new HashSet<>();
-        applyPolicy(event.blockList().iterator(), policy, affectedRealms);
+        applyPolicy(event.blockList().iterator(), policy, false, affectedRealms);
         recomputeAll(affectedRealms);
     }
 
@@ -91,7 +97,7 @@ public final class ExplosionListener implements Listener {
      * policy=CANCEL; for blocks that survive (will actually break) and
      * are tracked materials, decrement the power ledger.
      */
-    private void applyPolicy(Iterator<Block> blocks, ExplosionPolicy policy, Set<Long> affectedRealms) {
+    private void applyPolicy(Iterator<Block> blocks, ExplosionPolicy policy, boolean mobCaused, Set<Long> affectedRealms) {
         while (blocks.hasNext()) {
             Block b = blocks.next();
             ClaimKey k = ClaimKey.of(b.getLocation());
@@ -102,9 +108,11 @@ public final class ExplosionListener implements Listener {
 
             // Admin zones force cancel for ALL explosion sources — keeps
             // safezones safe and warzones from being terraformed by raiders.
+            // Mob-caused explosions are additionally gated by mob-griefing.
             boolean cancel = realm.peaceful()
                     || realm.zoneType().cancelsExplosions()
-                    || policy == ExplosionPolicy.CANCEL;
+                    || policy == ExplosionPolicy.CANCEL
+                    || (mobCaused && !store.getFlag(ownerId, "mob-griefing", false));
             if (cancel) {
                 blocks.remove();
                 continue;
@@ -140,5 +148,20 @@ public final class ExplosionListener implements Listener {
         // means an unrecognised explosion still drops blocks; CANCEL would
         // silently break unrelated mechanics, which is worse.
         return ExplosionPolicy.VANILLA;
+    }
+
+    /**
+     * Returns true when the explosion source is a mob (or TNT whose priming
+     * source is a mob). Player-primed TNT and end crystals are excluded.
+     */
+    private boolean isMobCaused(Entity src) {
+        if (src instanceof Creeper) return true;
+        if (src instanceof Wither || src instanceof WitherSkull) return true;
+        if (src instanceof LargeFireball) return true;
+        if (src instanceof TNTPrimed tnt) {
+            Entity source = tnt.getSource();
+            return source instanceof LivingEntity && !(source instanceof Player);
+        }
+        return false;
     }
 }

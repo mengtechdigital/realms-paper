@@ -18,16 +18,15 @@ import org.bukkit.event.entity.EntityChangeBlockEvent;
 /**
  * Per-claim mob spawning + griefing flags.
  *
- *   hostile-spawn — natural / chunk-gen hostile mobs allowed?
- *   passive-spawn — natural / chunk-gen passive mobs allowed?
+ *   hostile-spawn — natural / chunk-gen / plugin hostile mobs allowed?
+ *   passive-spawn — natural / chunk-gen / plugin passive mobs allowed?
  *   mob-griefing  — endermen / zombies / ravagers / silverfish modifying
- *                   blocks. Intentionally narrower than vanilla
- *                   mobGriefing gamerule — explosions are handled by
- *                   ExplosionListener, not here.
+ *                   blocks, AND mob-caused explosions (creeper, ghast,
+ *                   wither, and mob-primed TNT) inside claims.
  *
- * Spawn-reason filter: only NATURAL and CHUNK_GEN are gated. Spawn eggs,
- * spawners, command summons, breeding, and player-built golems all pass
- * through — those are intentional player actions.
+ * Spawn-reason filter: NATURAL, CHUNK_GEN, CUSTOM and DEFAULT are gated.
+ * Spawn eggs, spawners, command summons, breeding, and player-built golems
+ * all pass through — those are intentional player actions.
  */
 public final class MobListener implements Listener {
 
@@ -40,7 +39,8 @@ public final class MobListener implements Listener {
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onSpawn(CreatureSpawnEvent event) {
         SpawnReason reason = event.getSpawnReason();
-        if (reason != SpawnReason.NATURAL && reason != SpawnReason.CHUNK_GEN) return;
+        if (reason != SpawnReason.NATURAL && reason != SpawnReason.CHUNK_GEN
+                && reason != SpawnReason.CUSTOM && reason != SpawnReason.DEFAULT) return;
         Long ownerId = store.claimOwner(ClaimKey.of(event.getLocation()));
         if (ownerId == null) return;     // wilderness — vanilla
         Entity ent = event.getEntity();
